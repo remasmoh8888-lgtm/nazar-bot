@@ -83,7 +83,7 @@ def get_countdown():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "يا هلا والله في بوت نزار 🔮\n\n"
+        "˚˖𓍢ִ໋❀ يا هلا والله في بوت نزار\n\n"
         "📍 /nazar او نزار : لإرسال صورة الموقع الحالية.\n\n"
         "🌸 /map : لرابط خريطة الكولكتر التفاعلية.\n\n"
         "صيد موفق يا كولكترز! 🏇🎖️"
