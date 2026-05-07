@@ -4,45 +4,57 @@ import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# إعدادات اللوكس لمراقبة الأخطاء
+# إعدادات السجلات لمراقبة الأداء
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- التوكن حقك (مكتوب صح بدون os.environ عشان ما يكرش) ---
+# التوكن المباشر (تأكدي أنه بين علامات تنصيص)
 TELEGRAM_TOKEN = "8202101663:AAH6ZqbN58J9YnpswBX8v_bqqSLL7gKlxWE"
 
 def get_nazar():
-    """سحب البيانات من الرابط المباشر لتجنب حماية الموقع"""
     try:
-        # رابط البيانات المباشر (أسرع وأضمن)
         api_url = "https://madamnazar.io/data.json"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Referer": "https://madamnazar.io/"
         }
-        
         resp = requests.get(api_url, headers=headers, timeout=15)
-        
         if resp.status_code == 200:
             data = resp.json()
             location_name = data.get("name", "Unknown Area")
-            img = data.get("image", "")
-            
-            # تصحيح رابط الصورة
-            if img.startswith('assets') or img.startswith('/assets'):
-                img_url = f"https://madamnazar.io/{img.lstrip('/')}"
-            else:
-                img_url = img if img else "https://madamnazar.io/assets/img/map.png"
-                
+            img = data.get("image", "assets/img/map.png")
+            img_url = f"https://madamnazar.io/{img.lstrip('/')}"
             return img_url, location_name
-        else:
-            logger.error(f"الموقع رد برمز خطأ: {resp.status_code}")
-            return None, None
-            
+        return None, None
     except Exception as e:
-        logger.error(f"حدث خطأ أثناء سحب البيانات: {e}")
+        logger.error(f"Error: {e}")
         return None, None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔮 أهلاً بك! أنا")
-app.run_polling(drop_pending_updates=True)
+    await update.message.reply_text("🔮 أهلاً بك! استخدم /nazar لمعرفة موقع مدام نزار.")
+
+async def nazar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = await update.message.reply_text("🔍 جاري جلب الموقع...")
+    img_url, location = get_nazar()
+    if img_url:
+        caption = f"🔮 *موقع مدام نزار اليوم*\n\n📍 *المنطقة:* {location}"
+        await msg.delete()
+        await update.message.reply_photo(photo=img_url, caption=caption, parse_mode="Markdown")
+    else:
+        await msg.edit_text("❌ فشل الاتصال بالموقع حالياً.")
+
+def main():
+    """هنا يتم تعريف الـ app وتشغيله بشكل صحيح"""
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # إضافة الأوامر داخل الـ main
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("nazar", nazar_command))
+    
+    logger.info("🤖 Bot is starting...")
+    
+    # هذا السطر لازم يكون هنا عشان ما يطلع NameError
+    app.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
