@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = os.environ("8202101663:AAH6ZqbN58J9YnpswBX8v_bqqSLL7gKlxWE")
+TELEGRAM_TOKEN = os.environ"8202101663:AAH6ZqbN58J9YnpswBX8v_bqqSLL7gKlxWE"
 CHAT_ID = os.environ.get("8202101663", "")
 
 def get_nazar():
