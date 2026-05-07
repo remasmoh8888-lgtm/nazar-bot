@@ -44,4 +44,4 @@ def get_nazar():
         return None, None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔮 أهلاً بك! أنا
+    await update.message.reply_text("🔮 أهلاً بك! أنا")
