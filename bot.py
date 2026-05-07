@@ -45,3 +45,4 @@ def get_nazar():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔮 أهلاً بك! أنا")
+app.run_polling(drop_pending_updates=True)
