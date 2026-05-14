@@ -1,4 +1,3 @@
-import os
 import re
 import logging
 import requests
@@ -14,55 +13,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
-CHAT_ID = "8372609971"
+# ← حطي توكن البوت الجديد هنا
+TELEGRAM_TOKEN = "ضعي_التوكن_الجديد_هنا"
+CHAT_ID = "8202101663"
 
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
 
-# ─── السحب من rdocollector.com ────────────────────────────────
+# ─── السحب من coyotejack.net (المصدر الرئيسي — يتحدث يومياً 6 UTC) ───
 
 def get_nazar():
-    # نجرب rdocollector أولاً، وإذا ما ضبط نروح coyotejack كـ fallback
-    result = _scrape_rdocollector()
+    result = _scrape_coyotejack()
     if result[1]:
         return result
-    logger.warning("rdocollector failed, trying coyotejack...")
-    return _scrape_coyotejack()
-
-
-def _scrape_rdocollector():
-    try:
-        # timestamp عشان نكسر الـ cache
-        ts = int(datetime.now(timezone.utc).timestamp())
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        }
-        resp = requests.get(
-            f"https://rdocollector.com/madam-nazar?t={ts}",
-            headers=headers,
-            timeout=15
-        )
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        img_tag = soup.find("img", alt="Madam Nazar's current location in Red Dead Online")
-        img_url = img_tag["src"] if img_tag else None
-
-        for tag in soup.find_all(["p", "h2", "h3", "div"]):
-            text = tag.get_text(strip=True)
-            if "Madam Nazar is in" in text:
-                match = re.search(r"Madam Nazar is in (.+)", text)
-                location = match.group(1).strip() if match else text
-                return img_url, location
-
-        return None, None
-    except Exception as e:
-        logger.error(f"rdocollector error: {e}")
-        return None, None
+    logger.warning("coyotejack failed, trying rdocollector...")
+    return _scrape_rdocollector()
 
 
 def _scrape_coyotejack():
@@ -87,11 +52,45 @@ def _scrape_coyotejack():
                 location_text = location_p.get_text(strip=True) if location_p else ""
                 img_tag = h2.find_next("img")
                 img_url = img_tag.get("src") if img_tag else None
+                logger.info(f"[coyotejack] {location_text}")
                 return img_url, location_text
 
         return None, None
     except Exception as e:
         logger.error(f"coyotejack error: {e}")
+        return None, None
+
+
+def _scrape_rdocollector():
+    try:
+        ts = int(datetime.now(timezone.utc).timestamp())
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+        }
+        resp = requests.get(
+            f"https://rdocollector.com/madam-nazar?t={ts}",
+            headers=headers,
+            timeout=15
+        )
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        img_tag = soup.find("img", alt="Madam Nazar's current location in Red Dead Online")
+        img_url = img_tag["src"] if img_tag else None
+
+        for tag in soup.find_all(["p", "h2", "h3", "div"]):
+            text = tag.get_text(strip=True)
+            if "Madam Nazar is in" in text:
+                match = re.search(r"Madam Nazar is in (.+)", text)
+                location = match.group(1).strip() if match else text
+                logger.info(f"[rdocollector] {location}")
+                return img_url, location
+
+        return None, None
+    except Exception as e:
+        logger.error(f"rdocollector error: {e}")
         return None, None
 
 
