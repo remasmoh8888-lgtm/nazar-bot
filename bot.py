@@ -3,10 +3,9 @@ import re
 import logging
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
-from datetime import time
 import pytz
 
 logging.basicConfig(
@@ -15,8 +14,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = ["8372609971:AAHEmte5MNNL7fOLfYTn3TfBpmfVI4pNppw"]
-CHAT_ID = ("8372609971", "")
+TELEGRAM_TOKEN = "8372609971:AAHEmte5MNNL7fOLfYTn3TfBpmfVI4pNppw"
+CHAT_ID = "8372609971"
 
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
@@ -57,26 +56,16 @@ def get_nazar():
 
 
 def get_countdown():
-    """يحسب الوقت الباقي حتى الساعة 6:00 UTC (وقت تغيير مدام نزار)"""
     now = datetime.now(timezone.utc)
-
-    # موعد التغيير القادم الساعة 6:00 UTC
     next_change = now.replace(hour=6, minute=0, second=0, microsecond=0)
     if now >= next_change:
         next_change += timedelta(days=1)
-
     remaining = next_change - now
     total_seconds = int(remaining.total_seconds())
-
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
     seconds = total_seconds % 60
-
-    # توقيت الرياض (UTC+3)
-    riyadh_change = next_change.astimezone(pytz.timezone("Asia/Riyadh"))
-    riyadh_str = riyadh_change.strftime("%I:%M %p")  # 09:00 AM
-
-    return hours, minutes, seconds, riyadh_str
+    return hours, minutes, seconds
 
 
 # ─── الأوامر ──────────────────────────────────────────────────
@@ -84,13 +73,8 @@ def get_countdown():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "˚˖𓍢ִ໋❀ يا هلا والله في بوت نزار\n\n"
-        
-        "📍 /nazar او نزار : لإرسال صورة الموقع الحالية.\n\n"
-        
+        "📍 /nazar أو نزار لارسال موقع نزار.\n\n"
         "🌸 /map : لرابط خريطة الكولكتر التفاعلية.\n\n"
-        
-        "⏳ /time : كم باقي على تغيير موقع نزار.\n\n"
-        
         "صيد موفق يا كولكترز! 🏇🎖️"
     )
 
@@ -100,7 +84,7 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     img_url, location = get_nazar()
 
     if location:
-        hours, minutes, _, _ = get_countdown()
+        hours, minutes, _ = get_countdown()
         caption = (
             f"📍 مكان نزار اليوم\n\n"
             f"*{location}*\n\n"
@@ -128,33 +112,15 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def time_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    hours, minutes, seconds, riyadh_str = get_countdown()
-
-    # شريط تقدم بصري
-    total = 24 * 3600
-    remaining = hours * 3600 + minutes * 60 + seconds
-    passed = total - remaining
-    filled = int((passed / total) * 10)
-    bar = "🟩" * filled + "⬜" * (10 - filled)
-
-    await update.message.reply_text(
-        f"⏳ *الوقت الباقي على تغيير نزار*\n\n"
-        f"🕐 *{hours:02d}:{minutes:02d}:{seconds:02d}*\n\n"
-        f"{bar}\n\n"
-        f"📅 تتغير الساعة *{riyadh_str}* بتوقيت الرياض\n"
-        f"_(كل يوم الساعة 9:00 صباحاً)_",
-        parse_mode="Markdown"
-    )
-
-
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_nazar(update, context)
 
 
+async def collector_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await map_command(update, context)
+
+
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
-    if not CHAT_ID:
-        return
     img_url, location = get_nazar()
     if location:
         caption = f"📍 مكان نزار اليوم\n\n*{location}*"
@@ -184,15 +150,13 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("nazar", send_nazar))
     app.add_handler(CommandHandler("map", map_command))
-    app.add_handler(CommandHandler("time", time_command))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_handler))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"كول[ي]?كتر"), collector_handler))
 
-    if CHAT_ID:
-        app.job_queue.run_daily(
-            daily_auto_send,
-            time=time(6, 10, 0, tzinfo=pytz.UTC)
-        )
-        logger.info(f"Daily → {CHAT_ID}")
+    app.job_queue.run_daily(
+        daily_auto_send,
+        time=time(6, 10, 0, tzinfo=pytz.UTC)
+    )
 
     logger.info("🤖 Bot started!")
     app.run_polling(drop_pending_updates=True)
