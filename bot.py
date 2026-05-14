@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = "8372609971:AAHEmte5MNNL7fOLfYTn3TfBpmfVI4pNppw"
+TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
 CHAT_ID = "8372609971"
 
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
