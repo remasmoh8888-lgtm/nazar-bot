@@ -94,7 +94,6 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption = (
             f"📍 مكان نزار اليوم\n\n"
             f"*{spot}*\n"
-            f"_{region}_\n\n"
             f"⏳ يتغير بعد *{hours} ساعة و{minutes} دقيقة*"
         )
         await msg.delete()
