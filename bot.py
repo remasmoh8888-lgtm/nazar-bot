@@ -15,8 +15,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN =("8372609971:AAHEmte5MNNL7fOLfYTn3TfBpmfVI4pNppw")
-CHAT_ID =("8372609971", "")
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+CHAT_ID = os.environ.get("CHAT_ID", "")
 
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
@@ -84,8 +84,13 @@ def get_countdown():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "˚˖𓍢ִ໋❀ يا هلا والله في بوت نزار\n\n"
-        "📍/nazar أو نزار لارسال موقع نزار .\n\n"
+        
+        "📍 /nazar او نزار : لإرسال صورة الموقع الحالية.\n\n"
+        
         "🌸 /map : لرابط خريطة الكولكتر التفاعلية.\n\n"
+        
+        "⏳ /time : كم باقي على تغيير موقع نزار.\n\n"
+        
         "صيد موفق يا كولكترز! 🏇🎖️"
     )
 
@@ -120,6 +125,26 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🌸 خريطة الكولكتر التفاعلية:\n\n{COLLECTORS_MAP}"
+    )
+
+
+async def time_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    hours, minutes, seconds, riyadh_str = get_countdown()
+
+    # شريط تقدم بصري
+    total = 24 * 3600
+    remaining = hours * 3600 + minutes * 60 + seconds
+    passed = total - remaining
+    filled = int((passed / total) * 10)
+    bar = "🟩" * filled + "⬜" * (10 - filled)
+
+    await update.message.reply_text(
+        f"⏳ *الوقت الباقي على تغيير نزار*\n\n"
+        f"🕐 *{hours:02d}:{minutes:02d}:{seconds:02d}*\n\n"
+        f"{bar}\n\n"
+        f"📅 تتغير الساعة *{riyadh_str}* بتوقيت الرياض\n"
+        f"_(كل يوم الساعة 9:00 صباحاً)_",
+        parse_mode="Markdown"
     )
 
 
@@ -159,6 +184,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("nazar", send_nazar))
     app.add_handler(CommandHandler("map", map_command))
+    app.add_handler(CommandHandler("time", time_command))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_handler))
 
     if CHAT_ID:
