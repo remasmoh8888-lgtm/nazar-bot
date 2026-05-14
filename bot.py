@@ -13,8 +13,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ← حطي توكن البوت الجديد هنا
-TELEGRAM_TOKEN = "ضعي_التوكن_الجديد_هنا"
+TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
 CHAT_ID = "8202101663"
 
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
