@@ -111,7 +111,7 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"🌸 خريطة الكولكتر التفاعلية:\n\n{COLLECTORS_MAP}")
+    await update.message.reply_text(f"🌸 خريطة الكولكتر التفاعلية :\n\n{COLLECTORS_MAP}")
 
 
 async def text_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
