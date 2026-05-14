@@ -13,6 +13,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ← حطي توكن البوت الجديد هنا
 TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
 CHAT_ID = "8202101663"
 
@@ -48,11 +49,18 @@ def _scrape_coyotejack():
         for h2 in soup.find_all("h2"):
             if "Where is Madam Nazar Today?" in h2.get_text():
                 location_p = h2.find_next_sibling("p")
-                location_text = location_p.get_text(strip=True) if location_p else ""
-                img_tag = h2.find_next("img")
-                img_url = img_tag.get("src") if img_tag else None
-                logger.info(f"[coyotejack] {location_text}")
-                return img_url, location_text
+                full_text = location_p.get_text(strip=True) if location_p else ""
+
+                # استخرج الاسم المختصر: "She is near Window Rock, ..." → "Window Rock"
+                short = re.search(r"She is (?:near|in) ([A-Z][A-Za-z\s']+?)(?:,|\.| in | near |$)", full_text)
+                location_name = short.group(1).strip() if short else full_text
+
+                # صورة الخريطة من rdocollector باستخدام اسم الموقع
+                slug = location_name.lower().replace(" ", "-").replace("'", "")
+                img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
+
+                logger.info(f"[coyotejack] {location_name} | img: {img_url}")
+                return img_url, location_name
 
         return None, None
     except Exception as e:
