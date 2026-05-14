@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
+TELEGRAM_TOKEN = "8372609971:AAHEmte5MNNL7fOLfYTn3TfBpmfVI4pNppw"
 CHAT_ID = "8372609971"
 
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
@@ -23,15 +23,26 @@ COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 # ─── السحب من rdocollector.com ────────────────────────────────
 
 def get_nazar():
+    # نجرب rdocollector أولاً، وإذا ما ضبط نروح coyotejack كـ fallback
+    result = _scrape_rdocollector()
+    if result[1]:
+        return result
+    logger.warning("rdocollector failed, trying coyotejack...")
+    return _scrape_coyotejack()
+
+
+def _scrape_rdocollector():
     try:
+        # timestamp عشان نكسر الـ cache
+        ts = int(datetime.now(timezone.utc).timestamp())
         headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
         }
         resp = requests.get(
-            "https://rdocollector.com/madam-nazar",
+            f"https://rdocollector.com/madam-nazar?t={ts}",
             headers=headers,
             timeout=15
         )
@@ -49,9 +60,38 @@ def get_nazar():
                 return img_url, location
 
         return None, None
-
     except Exception as e:
-        logger.error(f"Scraping error: {e}")
+        logger.error(f"rdocollector error: {e}")
+        return None, None
+
+
+def _scrape_coyotejack():
+    try:
+        ts = int(datetime.now(timezone.utc).timestamp())
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+        }
+        resp = requests.get(
+            f"https://www.coyotejack.net/where-is-madam-nazar/?t={ts}",
+            headers=headers,
+            timeout=15
+        )
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        for h2 in soup.find_all("h2"):
+            if "Where is Madam Nazar Today?" in h2.get_text():
+                location_p = h2.find_next_sibling("p")
+                location_text = location_p.get_text(strip=True) if location_p else ""
+                img_tag = h2.find_next("img")
+                img_url = img_tag.get("src") if img_tag else None
+                return img_url, location_text
+
+        return None, None
+    except Exception as e:
+        logger.error(f"coyotejack error: {e}")
         return None, None
 
 
