@@ -15,8 +15,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-CHAT_ID = os.environ.get("CHAT_ID", "")
+TELEGRAM_TOKEN = os.environ["8372609971:AAHEmte5MNNL7fOLfYTn3TfBpmfVI4pNppw"]
+CHAT_ID = os.environ.get("8372609971", "")
 
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
