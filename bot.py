@@ -7,30 +7,17 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 import pytz
 
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ← حطي توكن البوت الجديد هنا
 TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
 CHAT_ID = "8202101663"
-
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
 
-# ─── السحب من coyotejack.net (المصدر الرئيسي — يتحدث يومياً 6 UTC) ───
+# ─── السحب من coyotejack (دقيق ويتحدث 6 UTC) ─────────────────
 
 def get_nazar():
-    result = _scrape_coyotejack()
-    if result[1]:
-        return result
-    logger.warning("coyotejack failed, trying rdocollector...")
-    return _scrape_rdocollector()
-
-
-def _scrape_coyotejack():
     try:
         ts = int(datetime.now(timezone.utc).timestamp())
         headers = {
@@ -40,58 +27,36 @@ def _scrape_coyotejack():
         }
         resp = requests.get(
             f"https://www.coyotejack.net/where-is-madam-nazar/?t={ts}",
-            headers=headers,
-            timeout=15
+            headers=headers, timeout=15
         )
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
         for h2 in soup.find_all("h2"):
             if "Where is Madam Nazar Today?" in h2.get_text():
-                location_p = h2.find_next_sibling("p")
-                location_text = location_p.get_text(strip=True) if location_p else ""
-                img_tag = h2.find_next("img")
-                img_url = img_tag.get("src") if img_tag else None
-                logger.info(f"[coyotejack] {location_text}")
-                return img_url, location_text
+                p = h2.find_next_sibling("p")
+                full_text = p.get_text(strip=True) if p else ""
 
-        return None, None
+                # نستخرج المنطقة: "Madam Nazar is in Ambarino today"
+                region_match = re.search(r"Madam Nazar is in (.+?) today", full_text)
+                region = region_match.group(1).strip() if region_match else ""
+
+                # نستخرج الموقع المحدد: "She is near Window Rock"
+                spot_match = re.search(r"She is (?:near|in) ([^,\.]+)", full_text)
+                spot = spot_match.group(1).strip() if spot_match else region
+
+                # نبني رابط الصورة من اسم الموقع (خريطة اللعبة)
+                img_slug = spot.lower().replace(" ", "-").replace("'", "")
+                img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{img_slug}.jpg"
+
+                logger.info(f"Location: {spot}, {region} | Image: {img_url}")
+                return img_url, spot, region
+
+        return None, None, None
+
     except Exception as e:
-        logger.error(f"coyotejack error: {e}")
-        return None, None
-
-
-def _scrape_rdocollector():
-    try:
-        ts = int(datetime.now(timezone.utc).timestamp())
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-        }
-        resp = requests.get(
-            f"https://rdocollector.com/madam-nazar?t={ts}",
-            headers=headers,
-            timeout=15
-        )
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        img_tag = soup.find("img", alt="Madam Nazar's current location in Red Dead Online")
-        img_url = img_tag["src"] if img_tag else None
-
-        for tag in soup.find_all(["p", "h2", "h3", "div"]):
-            text = tag.get_text(strip=True)
-            if "Madam Nazar is in" in text:
-                match = re.search(r"Madam Nazar is in (.+)", text)
-                location = match.group(1).strip() if match else text
-                logger.info(f"[rdocollector] {location}")
-                return img_url, location
-
-        return None, None
-    except Exception as e:
-        logger.error(f"rdocollector error: {e}")
-        return None, None
+        logger.error(f"Scraping error: {e}")
+        return None, None, None
 
 
 def get_countdown():
@@ -103,8 +68,7 @@ def get_countdown():
     total_seconds = int(remaining.total_seconds())
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
-    seconds = total_seconds % 60
-    return hours, minutes, seconds
+    return hours, minutes
 
 
 # ─── الأوامر ──────────────────────────────────────────────────
@@ -120,22 +84,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
-    img_url, location = get_nazar()
+    img_url, spot, region = get_nazar()
 
-    if location:
-        hours, minutes, _ = get_countdown()
+    if spot:
+        hours, minutes = get_countdown()
         caption = (
             f"📍 مكان نزار اليوم\n\n"
-            f"*{location}*\n\n"
+            f"*{spot}*\n"
+            f"_{region}_\n\n"
             f"⏳ يتغير بعد *{hours} ساعة و{minutes} دقيقة*"
         )
         await msg.delete()
         if img_url:
             try:
                 await update.message.reply_photo(
-                    photo=img_url,
-                    caption=caption,
-                    parse_mode="Markdown"
+                    photo=img_url, caption=caption, parse_mode="Markdown"
                 )
                 return
             except Exception as e:
@@ -146,39 +109,31 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"🌸 خريطة الكولكتر التفاعلية:\n\n{COLLECTORS_MAP}"
-    )
+    await update.message.reply_text(f"🌸 خريطة الكولكتر التفاعلية:\n\n{COLLECTORS_MAP}")
 
 
-async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def text_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_nazar(update, context)
 
 
-async def collector_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def text_collector(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await map_command(update, context)
 
 
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
-    img_url, location = get_nazar()
-    if location:
-        caption = f"📍 مكان نزار اليوم\n\n*{location}*"
+    img_url, spot, region = get_nazar()
+    if spot:
+        caption = f"📍 مكان نزار اليوم\n\n*{spot}*\n_{region}_"
         if img_url:
             try:
                 await context.bot.send_photo(
-                    chat_id=CHAT_ID,
-                    photo=img_url,
-                    caption=caption,
-                    parse_mode="Markdown"
+                    chat_id=CHAT_ID, photo=img_url,
+                    caption=caption, parse_mode="Markdown"
                 )
                 return
             except Exception:
                 pass
-        await context.bot.send_message(
-            chat_id=CHAT_ID,
-            text=caption,
-            parse_mode="Markdown"
-        )
+        await context.bot.send_message(chat_id=CHAT_ID, text=caption, parse_mode="Markdown")
 
 
 # ─── التشغيل ──────────────────────────────────────────────────
@@ -189,13 +144,10 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("nazar", send_nazar))
     app.add_handler(CommandHandler("map", map_command))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_handler))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"كول[ي]?كتر"), collector_handler))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_nazar))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"كول[ي]?كتر"), text_collector))
 
-    app.job_queue.run_daily(
-        daily_auto_send,
-        time=time(6, 10, 0, tzinfo=pytz.UTC)
-    )
+    app.job_queue.run_daily(daily_auto_send, time=time(6, 10, 0, tzinfo=pytz.UTC))
 
     logger.info("🤖 Bot started!")
     app.run_polling(drop_pending_updates=True)
