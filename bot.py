@@ -15,7 +15,7 @@ CHAT_ID = "8202101663"
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
 
-# ─── السحب من coyotejack ──────────────────────────────────────
+# ─── السحب من coyotejack (دقيق ويتحدث 6 UTC) ─────────────────
 
 def get_nazar():
     try:
@@ -37,20 +37,26 @@ def get_nazar():
                 p = h2.find_next_sibling("p")
                 full_text = p.get_text(strip=True) if p else ""
 
-                spot_match = re.search(r"She is (?:near|in) ([^,\.]+)", full_text)
-                spot = spot_match.group(1).strip() if spot_match else ""
+                # نستخرج المنطقة: "Madam Nazar is in Ambarino today"
+                region_match = re.search(r"Madam Nazar is in (.+?) today", full_text)
+                region = region_match.group(1).strip() if region_match else ""
 
+                # نستخرج الموقع المحدد: "She is near Window Rock"
+                spot_match = re.search(r"She is (?:near|in) ([^,\.]+)", full_text)
+                spot = spot_match.group(1).strip() if spot_match else region
+
+                # نبني رابط الصورة من اسم الموقع (خريطة اللعبة)
                 img_slug = spot.lower().replace(" ", "-").replace("'", "")
                 img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{img_slug}.jpg"
 
-                logger.info(f"Location: {spot} | Image: {img_url}")
-                return img_url, spot
+                logger.info(f"Location: {spot}, {region} | Image: {img_url}")
+                return img_url, spot, region
 
-        return None, None
+        return None, None, None
 
     except Exception as e:
         logger.error(f"Scraping error: {e}")
-        return None, None
+        return None, None, None
 
 
 def get_countdown():
@@ -78,10 +84,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
-    img_url, spot = get_nazar()
+    img_url, spot, region = get_nazar()
 
     if spot:
-        caption = f"📍 *{spot}*"
+        hours, minutes = get_countdown()
+        caption = (
+            f"📍 مكان نزار اليوم\n\n"
+            f"*{spot}*\n"
+            f"_{region}_\n\n"
+            f"⏳ يتغير بعد *{hours} ساعة و{minutes} دقيقة*"
+        )
         await msg.delete()
         if img_url:
             try:
@@ -109,9 +121,9 @@ async def text_collector(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
-    img_url, spot = get_nazar()
+    img_url, spot, region = get_nazar()
     if spot:
-        caption = f"📍 *{spot}*"
+        caption = f"📍 مكان نزار اليوم\n\n*{spot}*\n_{region}_"
         if img_url:
             try:
                 await context.bot.send_photo(
@@ -143,4 +155,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
