@@ -83,10 +83,9 @@ def get_countdown():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "يا هلا والله في بوت نزار 🔮\n\n"
+        "يا هلا والله في بوت نزار˚˖𓍢ִ໋❀ \n\n"
         "📍 /nazar او نزار : لإرسال صورة الموقع الحالية.\n\n"
         "🌸 /map : لرابط خريطة الكولكتر التفاعلية.\n\n"
-        "⏳ /time : كم باقي على تغيير موقع نزار.\n\n"
         "صيد موفق يا كولكترز! 🏇🎖️"
     )
 
@@ -180,7 +179,6 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("nazar", send_nazar))
     app.add_handler(CommandHandler("map", map_command))
-    app.add_handler(CommandHandler("time", time_command))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_handler))
 
     if CHAT_ID:
