@@ -34,6 +34,7 @@ NEAREST_FAST_TRAVEL = {
     "ambarino":         "Colter",
 }
 
+
 def get_nazar():
     try:
         ts = int(datetime.now(timezone.utc).timestamp())
@@ -60,7 +61,6 @@ def get_nazar():
                 img_slug = spot.lower().replace(" ", "-").replace("'", "")
                 img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{img_slug}.jpg"
 
-                # أقرب فاست ترفل
                 nearest = "غير معروف"
                 for key, city in NEAREST_FAST_TRAVEL.items():
                     if key in spot.lower():
@@ -88,6 +88,18 @@ def get_countdown():
     return hours, minutes
 
 
+def build_caption(spot, nearest, hours, minutes):
+    return (
+        f"📍 *{spot}*\n"
+        f"━━━━━━━━━━━━\n"
+        f"🏙️ أقرب فاست ترفل:\n"
+        f"*{nearest}*\n"
+        f"━━━━━━━━━━━━\n"
+        f"⏳ يتغير بعد:\n"
+        f"{hours}س {minutes}د"
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "˚˖𓍢ִ໋❀ يا هلا والله في بوت نزار\n\n"
@@ -103,11 +115,7 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if spot:
         hours, minutes = get_countdown()
-        caption = (
-            f"📍 *{spot}*\n\n"
-            f"أقرب فاست ترفل: *{nearest}*\n\n"
-            f"⏳ يتغير بعد: {hours}س {minutes}د"
-        )
+        caption = build_caption(spot, nearest, hours, minutes)
         await msg.delete()
         if img_url:
             try:
@@ -134,11 +142,7 @@ async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
     img_url, spot, nearest = get_nazar()
     if spot:
         hours, minutes = get_countdown()
-        caption = (
-            f"📍 *{spot}*\n\n"
-            f"🏙️ أقرب فاست ترفل: *{nearest}*\n\n"
-            f"⏳ يتغير بعد: {hours}س {minutes}د"
-        )
+        caption = build_caption(spot, nearest, hours, minutes)
         if img_url:
             try:
                 await context.bot.send_photo(
