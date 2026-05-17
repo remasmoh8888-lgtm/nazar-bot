@@ -14,8 +14,25 @@ TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
 CHAT_ID = "8202101663"
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
-
-# ─── السحب من coyotejack ──────────────────────────────────────
+NEAREST_FAST_TRAVEL = {
+    "grizzlies east":   "Annesburg",
+    "grizzlies west":   "Strawberry",
+    "big valley":       "Strawberry",
+    "west elizabeth":   "Blackwater",
+    "flat iron lake":   "Thieves Landing",
+    "new hanover":      "Valentine",
+    "heartlands":       "Valentine",
+    "bluewater marsh":  "Saint Denis",
+    "lemoyne":          "Rhodes",
+    "scarlett meadows": "Rhodes",
+    "bayou nwa":        "Saint Denis",
+    "roanoke ridge":    "Annesburg",
+    "new austin":       "Armadillo",
+    "cholla springs":   "Armadillo",
+    "gaptooth ridge":   "Tumbleweed",
+    "rio bravo":        "Tumbleweed",
+    "ambarino":         "Colter",
+}
 
 def get_nazar():
     try:
@@ -43,14 +60,21 @@ def get_nazar():
                 img_slug = spot.lower().replace(" ", "-").replace("'", "")
                 img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{img_slug}.jpg"
 
-                logger.info(f"Location: {spot} | Image: {img_url}")
-                return img_url, spot
+                # أقرب فاست ترفل
+                nearest = "غير معروف"
+                for key, city in NEAREST_FAST_TRAVEL.items():
+                    if key in spot.lower():
+                        nearest = city
+                        break
 
-        return None, None
+                logger.info(f"Location: {spot} | Nearest: {nearest} | Image: {img_url}")
+                return img_url, spot, nearest
+
+        return None, None, None
 
     except Exception as e:
         logger.error(f"Scraping error: {e}")
-        return None, None
+        return None, None, None
 
 
 def get_countdown():
@@ -59,13 +83,10 @@ def get_countdown():
     if now >= next_change:
         next_change += timedelta(days=1)
     remaining = next_change - now
-    total_seconds = int(remaining.total_seconds())
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
+    hours = int(remaining.total_seconds()) // 3600
+    minutes = (int(remaining.total_seconds()) % 3600) // 60
     return hours, minutes
 
-
-# ─── الأوامر ──────────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -78,10 +99,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
-    img_url, spot = get_nazar()
+    img_url, spot, nearest = get_nazar()
 
     if spot:
-        caption = f"📍 *{spot}*"
+        hours, minutes = get_countdown()
+        caption = (
+            f"📍 *{spot}*\n\n"
+            f"🏙️ أقرب فاست ترفل: *{nearest}*\n\n"
+            f"⏳ يتغير بعد: {hours}س {minutes}د"
+        )
         await msg.delete()
         if img_url:
             try:
@@ -104,14 +130,15 @@ async def text_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_nazar(update, context)
 
 
-async def text_collector(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await map_command(update, context)
-
-
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
-    img_url, spot = get_nazar()
+    img_url, spot, nearest = get_nazar()
     if spot:
-        caption = f"📍 *{spot}*"
+        hours, minutes = get_countdown()
+        caption = (
+            f"📍 *{spot}*\n\n"
+            f"🏙️ أقرب فاست ترفل: *{nearest}*\n\n"
+            f"⏳ يتغير بعد: {hours}س {minutes}د"
+        )
         if img_url:
             try:
                 await context.bot.send_photo(
@@ -121,10 +148,10 @@ async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
                 return
             except Exception:
                 pass
-        await context.bot.send_message(chat_id=CHAT_ID, text=caption, parse_mode="Markdown")
+        await context.bot.send_message(
+            chat_id=CHAT_ID, text=caption, parse_mode="Markdown"
+        )
 
-
-# ─── التشغيل ──────────────────────────────────────────────────
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
