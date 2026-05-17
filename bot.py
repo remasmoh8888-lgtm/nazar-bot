@@ -1,12 +1,12 @@
 import re
-import json
 import time
+import base64
 import logging
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta, time as dtime
 from telegram import Update
-from telegram.error import Conflict, NetworkError, TelegramError
+from telegram.error import Conflict, NetworkError
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 import pytz
 
@@ -19,6 +19,7 @@ COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json",
     "Cache-Control": "no-cache",
 }
 
@@ -39,50 +40,106 @@ LOCATIONS = {
 
 
 def get_nazar():
-    # نجرب jeanropke nazar.json أولاً
-    for url in [
-        "https://jeanropke.github.io/RDR2CollectorsMap/data/nazar.json",
-        "https://raw.githubusercontent.com/jeanropke/RDR2CollectorsMap/master/data/nazar.json",
-    ]:
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=15)
-            logger.info(f"nazar.json → {resp.status_code} | {resp.text[:200]}")
-            if resp.status_code == 200:
-                data = resp.json()
-                point = None
-                if isinstance(data, int):
-                    point = data
-                elif isinstance(data, dict):
-                    point = data.get("point") or data.get("id") or data.get("location_id")
-                    if not point and "location" in data:
-                        img = _get_image()
-                        return img, str(data["location"]).title(), str(data.get("region","")).title()
-                if point and int(point) in LOCATIONS:
-                    info = LOCATIONS[int(point)]
-                    img = _get_image()
-                    return img, info["name"], info["region"]
-        except Exception as e:
-            logger.error(f"nazar.json error: {e}")
+    # ── المصدر 1: GitHub API (أكثر موثوقية) ──────────────────
+    try:
+        resp = requests.get(
+            "https://api.github.com/repos/jeanropke/RDR2CollectorsMap/contents/data/nazar.json",
+            headers={**HEADERS, "Accept": "application/vnd.github.v3+json"},
+            timeout=15
+        )
+        logger.info(f"GitHub API: {resp.status_code}")
+        if resp.status_code == 200:
+            content_b64 = resp.json().get("content", "")
+            raw = base64.b64decode(content_b64).decode("utf-8").strip()
+            logger.info(f"nazar.json raw: {raw[:300]}")
+            result = _parse_nazar_json(raw)
+            if result[1]:
+                return result
+    except Exception as e:
+        logger.error(f"GitHub API error: {e}")
 
-    # fallback: madamnazar.io
+    # ── المصدر 2: GitHub Pages مباشرة ────────────────────────
+    try:
+        resp = requests.get(
+            "https://jeanropke.github.io/RDR2CollectorsMap/data/nazar.json",
+            headers=HEADERS, timeout=15
+        )
+        logger.info(f"GitHub Pages: {resp.status_code} | {resp.text[:200]}")
+        if resp.status_code == 200:
+            result = _parse_nazar_json(resp.text)
+            if result[1]:
+                return result
+    except Exception as e:
+        logger.error(f"GitHub Pages error: {e}")
+
+    # ── المصدر 3: madamnazar.io ───────────────────────────────
     return _from_madamnazar()
 
 
-def _get_image():
+def _parse_nazar_json(raw):
+    """يحلل nazar.json بكل صيغه الممكنة"""
+    import json
+    try:
+        data = json.loads(raw)
+        logger.info(f"Parsed JSON type: {type(data)} | value: {data}")
+
+        if isinstance(data, int):
+            return _location_from_point(data)
+
+        if isinstance(data, list) and len(data) > 0:
+            item = data[0]
+            if isinstance(item, int):
+                return _location_from_point(item)
+            if isinstance(item, dict):
+                point = item.get("point") or item.get("id") or item.get("index")
+                if point:
+                    return _location_from_point(int(point))
+                loc = item.get("location") or item.get("name")
+                if loc:
+                    img = _get_madamnazar_image()
+                    return img, str(loc).title(), item.get("region", "")
+
+        if isinstance(data, dict):
+            point = data.get("point") or data.get("id") or data.get("location_id") or data.get("index")
+            if point:
+                return _location_from_point(int(point))
+            loc = data.get("location") or data.get("name")
+            if loc:
+                img = _get_madamnazar_image()
+                return img, str(loc).title(), data.get("region", "")
+
+    except Exception as e:
+        logger.error(f"JSON parse error: {e} | raw: {raw[:100]}")
+    return None, None, None
+
+
+def _location_from_point(point):
+    if point in LOCATIONS:
+        info = LOCATIONS[point]
+        img = _get_madamnazar_image()
+        logger.info(f"Point {point} → {info['name']}")
+        return img, info["name"], info["region"]
+    logger.warning(f"Unknown point: {point}")
+    return None, None, None
+
+
+def _get_madamnazar_image():
     for delta in [0, -1]:
         date = (datetime.now(timezone.utc) + timedelta(days=delta)).strftime("%Y-%m-%d")
         try:
             resp = requests.get(
                 f"https://madamnazar.io/madam-nazar-location-{date}",
-                headers=HEADERS, timeout=10
+                headers={"User-Agent": HEADERS["User-Agent"], "Cache-Control": "no-cache"},
+                timeout=10
             )
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
                 tag = soup.find("meta", property="og:image")
                 if tag and tag.get("content"):
+                    logger.info(f"Image from madamnazar [{date}]: {tag.get('content')}")
                     return tag.get("content")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Image fetch error: {e}")
     return None
 
 
@@ -92,20 +149,24 @@ def _from_madamnazar():
         try:
             resp = requests.get(
                 f"https://madamnazar.io/madam-nazar-location-{date}",
-                headers=HEADERS, timeout=12
+                headers={"User-Agent": HEADERS["User-Agent"], "Cache-Control": "no-cache"},
+                timeout=12
             )
-            logger.info(f"madamnazar [{date}] → {resp.status_code}")
+            logger.info(f"madamnazar [{date}]: {resp.status_code}")
             if resp.status_code != 200:
                 continue
             soup = BeautifulSoup(resp.text, "html.parser")
             img_tag = soup.find("meta", property="og:image")
             img_url = img_tag.get("content") if img_tag else None
-            desc_tag = soup.find("meta", property="og:description")
+            desc_tag = soup.find("meta", property="og:description") or soup.find("meta", attrs={"name": "description"})
             desc = desc_tag.get("content", "") if desc_tag else ""
-            logger.info(f"desc: {desc[:100]}")
+            logger.info(f"madamnazar desc: {desc[:150]}")
             m = re.search(r"point\s*\d+\s*[—\-–]+\s*([^—\-–(]+?)\s*\(([^)]+)\)", desc, re.I)
             if m:
                 return img_url, m.group(1).strip().title(), m.group(2).strip().title()
+            m2 = re.search(r"point\s*\d+\s*[—\-–]+\s*([^—\-–(.]{3,})", desc, re.I)
+            if m2:
+                return img_url, m2.group(1).strip().title(), ""
         except Exception as e:
             logger.error(f"madamnazar error: {e}")
     return None, None, None
@@ -120,20 +181,15 @@ def get_countdown():
     return total // 3600, (total % 3600) // 60
 
 
-# ─── Error Handler ────────────────────────────────────────────
-
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    error = context.error
-    if isinstance(error, Conflict):
-        logger.warning("Conflict: another instance running, waiting...")
-        time.sleep(5)
-    elif isinstance(error, NetworkError):
-        logger.warning(f"Network error: {error}")
+    if isinstance(context.error, Conflict):
+        logger.warning("Conflict: waiting...")
+        time.sleep(3)
+    elif isinstance(context.error, NetworkError):
+        logger.warning(f"Network: {context.error}")
     else:
-        logger.error(f"Error: {error}")
+        logger.error(f"Error: {context.error}")
 
-
-# ─── الأوامر ──────────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -147,7 +203,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
     img_url, location, region = get_nazar()
-
     if location:
         hours, minutes = get_countdown()
         caption = f"📍 *{location}*"
@@ -193,22 +248,17 @@ async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=CHAT_ID, text=caption, parse_mode="Markdown")
 
 
-# ─── التشغيل ──────────────────────────────────────────────────
-
 def main():
-    # انتظار بسيط عشان Railway يوقف النسخة القديمة أولاً
     logger.info("Waiting 5s for old instance to stop...")
     time.sleep(5)
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("nazar", send_nazar))
     app.add_handler(CommandHandler("map", map_command))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_nazar))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"كول[ي]?كتر"), text_collector))
     app.add_error_handler(error_handler)
-
     app.job_queue.run_daily(daily_auto_send, time=dtime(6, 1, 0, tzinfo=pytz.UTC))
 
     logger.info("🤖 Bot started!")
@@ -217,4 +267,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                    
+        
