@@ -105,7 +105,7 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         hours, minutes = get_countdown()
         caption = (
             f"📍 *{spot}*\n\n"
-            f"🏙️ أقرب فاست ترفل: *{nearest}*\n\n"
+            f"أقرب فاست ترفل: *{nearest}*\n\n"
             f"⏳ يتغير بعد: {hours}س {minutes}د"
         )
         await msg.delete()
