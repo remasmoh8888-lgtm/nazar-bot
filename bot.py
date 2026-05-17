@@ -1,90 +1,65 @@
-import os
 import re
 import logging
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
-from datetime import time
 import pytz
 
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN ="8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
-CHAT_ID = "8372609971"
-
+TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
+CHAT_ID = "-1003763689916"
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
 
-# ─── السحب من rdocollector.com ────────────────────────────────
-
 def get_nazar():
-    try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-            ),
-        }
-        resp = requests.get(
-            "https://rdocollector.com/madam-nazar",
-            headers=headers,
-            timeout=15
-        )
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        img_tag = soup.find("img", alt="Madam Nazar's current location in Red Dead Online")
-        img_url = img_tag["src"] if img_tag else None
-
-        for tag in soup.find_all(["p", "h2", "h3", "div"]):
-            text = tag.get_text(strip=True)
-            if "Madam Nazar is in" in text:
-                match = re.search(r"Madam Nazar is in (.+)", text)
-                location = match.group(1).strip() if match else text
-                return img_url, location
-
-        return None, None
-
-    except Exception as e:
-        logger.error(f"Scraping error: {e}")
-        return None, None
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+    }
+    for delta in [0, -1]:
+        date = (datetime.now(timezone.utc) + timedelta(days=delta)).strftime("%Y-%m-%d")
+        url = f"https://madamnazar.io/madam-nazar-location-{date}"
+        try:
+            resp = requests.get(url, headers=headers, timeout=15)
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+            og_image = soup.find("meta", property="og:image")
+            img_url = og_image.get("content") if og_image else None
+            og_desc = soup.find("meta", property="og:description")
+            desc = og_desc.get("content", "") if og_desc else ""
+            match = re.search(r"point \d+ — ([^—(]+?)(?:\s*\(([^)]+)\))?(?:\s+on\s+|\s*—)", desc)
+            if match:
+                location = match.group(1).strip().title()
+                region = match.group(2).strip().title() if match.group(2) else ""
+                logger.info(f"[{date}] {location}, {region}")
+                return img_url, location, region
+        except Exception as e:
+            logger.error(f"Error: {e}")
+    return None, None, None
 
 
 def get_countdown():
-    """يحسب الوقت الباقي حتى الساعة 6:00 UTC (وقت تغيير مدام نزار)"""
     now = datetime.now(timezone.utc)
-
-    # موعد التغيير القادم الساعة 6:00 UTC
     next_change = now.replace(hour=6, minute=0, second=0, microsecond=0)
     if now >= next_change:
         next_change += timedelta(days=1)
-
     remaining = next_change - now
     total_seconds = int(remaining.total_seconds())
-
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
-    seconds = total_seconds % 60
+    return hours, minutes
 
-    # توقيت الرياض (UTC+3)
-    riyadh_change = next_change.astimezone(pytz.timezone("Asia/Riyadh"))
-    riyadh_str = riyadh_change.strftime("%I:%M %p")  # 09:00 AM
-
-    return hours, minutes, seconds, riyadh_str
-
-
-# ─── الأوامر ──────────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "يا هلا والله في بوت نزار˚˖𓍢ִ໋❀ \n\n"
-        "📍 /nazar او نزار : لإرسال صورة الموقع الحالية.\n\n"
+        "˚˖𓍢ִ໋❀ يا هلا والله في بوت نزار\n\n"
+        "📍 /nazar أو نزار لارسال موقع نزار.\n\n"
         "🌸 /map : لرابط خريطة الكولكتر التفاعلية.\n\n"
         "صيد موفق يا كولكترز! 🏇🎖️"
     )
@@ -92,23 +67,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
-    img_url, location = get_nazar()
-
+    img_url, location, region = get_nazar()
     if location:
-        hours, minutes, _, _ = get_countdown()
+        hours, minutes = get_countdown()
         caption = (
-            f"📍 مكان نزار اليوم\n\n"
-            f"*{location}*\n\n"
+            f"📍 *{location}*\n"
+            f"_{region}_\n\n"
             f"⏳ يتغير بعد *{hours} ساعة و{minutes} دقيقة*"
         )
         await msg.delete()
         if img_url:
             try:
-                await update.message.reply_photo(
-                    photo=img_url,
-                    caption=caption,
-                    parse_mode="Markdown"
-                )
+                await update.message.reply_photo(photo=img_url, caption=caption, parse_mode="Markdown")
                 return
             except Exception as e:
                 logger.error(f"Photo failed: {e}")
@@ -118,60 +88,29 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"🌸 خريطة الكولكتر التفاعلية:\n\n{COLLECTORS_MAP}"
-    )
+    await update.message.reply_text(f"🌸 خريطة الكولكتر التفاعلية:\n\n{COLLECTORS_MAP}")
 
 
-async def time_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    hours, minutes, seconds, riyadh_str = get_countdown()
-
-    # شريط تقدم بصري
-    total = 24 * 3600
-    remaining = hours * 3600 + minutes * 60 + seconds
-    passed = total - remaining
-    filled = int((passed / total) * 10)
-    bar = "🟩" * filled + "⬜" * (10 - filled)
-
-    await update.message.reply_text(
-        f"⏳ *الوقت الباقي على تغيير نزار*\n\n"
-        f"🕐 *{hours:02d}:{minutes:02d}:{seconds:02d}*\n\n"
-        f"{bar}\n\n"
-        f"📅 تتغير الساعة *{riyadh_str}* بتوقيت الرياض\n"
-        f"_(كل يوم الساعة 9:00 صباحاً)_",
-        parse_mode="Markdown"
-    )
-
-
-async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def text_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_nazar(update, context)
 
 
+async def text_collector(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await map_command(update, context)
+
+
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
-    if not CHAT_ID:
-        return
-    img_url, location = get_nazar()
+    img_url, location, region = get_nazar()
     if location:
-        caption = f"📍 مكان نزار اليوم\n\n*{location}*"
+        caption = f"📍 *{location}*\n_{region}_"
         if img_url:
             try:
-                await context.bot.send_photo(
-                    chat_id=CHAT_ID,
-                    photo=img_url,
-                    caption=caption,
-                    parse_mode="Markdown"
-                )
+                await context.bot.send_photo(chat_id=CHAT_ID, photo=img_url, caption=caption, parse_mode="Markdown")
                 return
             except Exception:
                 pass
-        await context.bot.send_message(
-            chat_id=CHAT_ID,
-            text=caption,
-            parse_mode="Markdown"
-        )
+        await context.bot.send_message(chat_id=CHAT_ID, text=caption, parse_mode="Markdown")
 
-
-# ─── التشغيل ──────────────────────────────────────────────────
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -179,14 +118,11 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("nazar", send_nazar))
     app.add_handler(CommandHandler("map", map_command))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_handler))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_nazar))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"كول[ي]?كتر"), text_collector))
 
-    if CHAT_ID:
-        app.job_queue.run_daily(
-            daily_auto_send,
-            time=time(6, 10, 0, tzinfo=pytz.UTC)
-        )
-        logger.info(f"Daily → {CHAT_ID}")
+    # يرسل الساعة 9:01 صباحاً بتوقيت السعودية (دقيقة بعد تحديث الموقع)
+    app.job_queue.run_daily(daily_auto_send, time=time(6, 1, 0, tzinfo=pytz.UTC))
 
     logger.info("🤖 Bot started!")
     app.run_polling(drop_pending_updates=True)
@@ -194,3 +130,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
