@@ -10,59 +10,52 @@ import pytz
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# تنبيه أمني: يفضل دائماً وضع التوكنز في ملف .env
 TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
 CHAT_ID = "8202101663"
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
 
-# ─── السحب من coyotejack ──────────────────────────────────────
+# ─── السحب من madamnazar.io ──────────────────────────────────
 
 def get_nazar():
     try:
-        ts = int(datetime.now(timezone.utc).timestamp())
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
         }
-        resp = requests.get(
-            f"https://www.coyotejack.net/where-is-madam-nazar/?t={ts}",
-            headers=headers, timeout=15
-        )
+        # جلب الصفحة الرئيسية للموقع
+        resp = requests.get("https://madamnazar.io/", headers=headers, timeout=15)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        for h2 in soup.find_all("h2"):
-            if "Where is Madam Nazar Today?" in h2.get_text():
-                p = h2.find_next_sibling("p")
-                full_text = p.get_text(strip=True) if p else ""
+        # جلب اسم المنطقة المحددة (مثال: Plainview)
+        heading_element = soup.find("h2", id="location-heading")
+        # جلب المنطقة الكبرى (مثال: New Austin)
+        region_element = soup.find("h3", id="region-heading")
+        # جلب رابط الصورة الخاصة بالموقع
+        img_element = soup.find("img", id="location-image")
 
-                spot_match = re.search(r"She is (?:near|in) ([^,\.]+)", full_text)
-                spot = spot_match.group(1).strip() if spot_match else ""
+        if heading_element and region_element:
+            spot = heading_element.get_text(strip=True)
+            region = region_element.get_text(strip=True)
+            full_location = f"{spot} ({region})"
+            
+            img_url = ""
+            if img_element and img_element.get("src"):
+                src = img_element["src"]
+                # تحويل الرابط النسبي إلى رابط كامل إذا لزم الأمر
+                img_url = src if src.startswith("http") else f"https://madamnazar.io{src}"
 
-                img_slug = spot.lower().replace(" ", "-").replace("'", "")
-                img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{img_slug}.jpg"
-
-                logger.info(f"Location: {spot} | Image: {img_url}")
-                return img_url, spot
+            logger.info(f"Location Found: {full_location} | Image: {img_url}")
+            return img_url, full_location
 
         return None, None
 
     except Exception as e:
-        logger.error(f"Scraping error: {e}")
+        logger.error(f"Scraping error from madamnazar.io: {e}")
         return None, None
-
-
-def get_countdown():
-    now = datetime.now(timezone.utc)
-    next_change = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    if now >= next_change:
-        next_change += timedelta(days=1)
-    remaining = next_change - now
-    total_seconds = int(remaining.total_seconds())
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-    return hours, minutes
 
 
 # ─── الأوامر ──────────────────────────────────────────────────
@@ -70,14 +63,14 @@ def get_countdown():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "˚˖𓍢ִ໋❀ يا هلا والله في بوت نزار\n\n"
-        "📍 /nazar أو نزار لارسال موقع نزار.\n\n"
+        "📍 /nazar أو اكتب 'نزار' لارسال موقع نزار.\n\n"
         "🌸 /map : لرابط خريطة الكولكتر التفاعلية.\n\n"
         "صيد موفق يا كولكترز! 🏇🎖️"
     )
 
 
 async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
+    msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار من المصدر الجديد...")
     img_url, spot = get_nazar()
 
     if spot:
@@ -90,10 +83,12 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             except Exception as e:
-                logger.error(f"Photo failed: {e}")
+                logger.error(f"Photo failed to send: {e}")
+        
+        # في حال فشل إرسال الصورة، يتم إرسال النص فقط
         await update.message.reply_text(caption, parse_mode="Markdown")
     else:
-        await msg.edit_text("❌ ما قدرت أجيب الموقع، حاول مرة ثانية.")
+        await msg.edit_text("❌ ما قدرت أجيب الموقع حالياً، جرب مرة ثانية لاحقاً.")
 
 
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -102,10 +97,6 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def text_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_nazar(update, context)
-
-
-async def text_collector(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await map_command(update, context)
 
 
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
@@ -132,10 +123,14 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("nazar", send_nazar))
     app.add_handler(CommandHandler("map", map_command))
+    
+    # تحسين الفلتر ليتفاعل مع كلمة نزار بشكل مرن
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_nazar))
+    
+    # جدولة الإرسال التلقائي اليومي
     app.job_queue.run_daily(daily_auto_send, time=time(6, 10, 0, tzinfo=pytz.UTC))
 
-    logger.info("🤖 Bot started!")
+    logger.info("🤖 Bot started successfully with madamnazar.io source!")
     app.run_polling(drop_pending_updates=True)
 
 
