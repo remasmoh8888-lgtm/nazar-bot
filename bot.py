@@ -1,7 +1,7 @@
 import re
+import json
 import logging
 import requests
-from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta, time
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
@@ -11,89 +11,138 @@ logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=lo
 logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
-CHAT_ID = "-1003763689916"
+CHAT_ID = "1003763689916"
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    "Pragma": "no-cache",
-    "Accept": "text/html,application/xhtml+xml",
+    "Cache-Control": "no-cache",
+}
+
+# أسماء المواقع الـ 12 مع صورها من madamnazar.github.io
+LOCATIONS = {
+    1:  {"name": "Beecher's Hope",    "region": "West Elizabeth"},
+    2:  {"name": "Twin Rocks",         "region": "New Austin"},
+    3:  {"name": "Window Rock",        "region": "New Hanover"},
+    4:  {"name": "Manteca Falls",      "region": "Flat Iron Lake"},
+    5:  {"name": "Black Balsam Rise",  "region": "Ambarino"},
+    6:  {"name": "Grizzlies East",     "region": "Ambarino"},
+    7:  {"name": "Bluewater Marsh",    "region": "Lemoyne"},
+    8:  {"name": "Bolger Glade",       "region": "Lemoyne"},
+    9:  {"name": "Hanging Dog Ranch",  "region": "West Elizabeth"},
+    10: {"name": "Flatneck Station",   "region": "New Hanover"},
+    11: {"name": "Limpany",            "region": "New Hanover"},
+    12: {"name": "Benedict Point",     "region": "New Austin"},
 }
 
 
 def get_nazar():
-    """
-    يسحب من madamnazar.io/madam-nazar-location-YYYY-MM-DD
-    نفس المصدر الذي يستخدمه jeanropke
-    يجرب اليوم، وإذا فشل يجرب أمس
-    """
-    for delta in [0, -1]:
-        date = (datetime.now(timezone.utc) + timedelta(days=delta)).strftime("%Y-%m-%d")
-        url = f"https://madamnazar.io/madam-nazar-location-{date}"
+    """يسحب من nazar.json اللي يستخدمه جين روبك مباشرة"""
+    urls = [
+        "https://jeanropke.github.io/RDR2CollectorsMap/data/nazar.json",
+        "https://raw.githubusercontent.com/jeanropke/RDR2CollectorsMap/master/data/nazar.json",
+    ]
+
+    for url in urls:
         try:
             resp = requests.get(url, headers=HEADERS, timeout=15)
-            logger.info(f"[{date}] status={resp.status_code}")
+            logger.info(f"URL: {url} | Status: {resp.status_code} | Body: {resp.text[:200]}")
 
             if resp.status_code != 200:
                 continue
 
-            soup = BeautifulSoup(resp.text, "html.parser")
+            data = resp.json()
+            logger.info(f"JSON: {data}")
 
-            # ── الصورة ──────────────────────────────────────────
-            img_url = None
-            for attr in [("property", "og:image"), ("name", "twitter:image")]:
-                tag = soup.find("meta", {attr[0]: attr[1]})
-                if tag:
-                    img_url = tag.get("content")
-                    break
+            # نجرب كل الصيغ الممكنة للـ JSON
+            point = None
 
-            # ── الوصف ───────────────────────────────────────────
-            desc = ""
-            for attr in [("property", "og:description"), ("name", "description")]:
-                tag = soup.find("meta", {attr[0]: attr[1]})
-                if tag:
-                    desc = tag.get("content", "")
-                    break
+            if isinstance(data, int):
+                point = data
+            elif isinstance(data, dict):
+                point = (
+                    data.get("point") or
+                    data.get("id") or
+                    data.get("location_id") or
+                    data.get("index")
+                )
+                # لو في اسم مباشرة
+                if not point and "location" in data:
+                    loc = data.get("location", "")
+                    region = data.get("region", "")
+                    img = data.get("image") or data.get("img") or data.get("map")
+                    logger.info(f"Direct location: {loc}, {region}")
+                    return img, str(loc).title(), str(region).title()
 
-            # إذا ما في meta، نجرب نص الصفحة
-            if not desc:
-                p = soup.find("p")
-                desc = p.get_text(strip=True) if p else ""
-
-            logger.info(f"[{date}] desc={desc[:100]}")
-
-            # ── استخراج الاسم والمنطقة ──────────────────────────
-            # مثال: "point 7 — bluewater marsh (lemoyne) on February 14, 2026"
-            patterns = [
-                r"point\s*\d+\s*[—\-–]+\s*([^—\-–(]+?)\s*\(([^)]+)\)",
-                r"point\s*\d+\s*[—\-–]+\s*([^—\-–(.]+)",
-                r"located in\s+point\s*\d+\s*[—\-–]+\s*([^—\-–(]+?)\s*\(([^)]+)\)",
-                r"Nazar.*?in\s+([A-Z][a-z]+(?:\s+[A-Za-z]+)*)\s*[\(\.]",
-            ]
-
-            for pattern in patterns:
-                m = re.search(pattern, desc, re.IGNORECASE)
-                if m:
-                    location = m.group(1).strip().title()
-                    region = m.group(2).strip().title() if len(m.groups()) >= 2 and m.group(2) else ""
-                    if len(location) > 2:
-                        logger.info(f"[{date}] ✅ {location}, {region}")
-                        return img_url, location, region
+            if point and int(point) in LOCATIONS:
+                info = LOCATIONS[int(point)]
+                # نجيب الصورة من madamnazar.io بالتاريخ
+                img = _get_image_from_madamnazar()
+                return img, info["name"], info["region"]
 
         except Exception as e:
-            logger.error(f"[{date}] error: {e}")
+            logger.error(f"Error {url}: {e}")
 
-    logger.error("All attempts failed")
+    # fallback أخير: madamnazar.io مباشرة
+    return _from_madamnazar_page()
+
+
+def _get_image_from_madamnazar():
+    """يجيب الصورة فقط من madamnazar.io"""
+    for delta in [0, -1]:
+        date = (datetime.now(timezone.utc) + timedelta(days=delta)).strftime("%Y-%m-%d")
+        try:
+            resp = requests.get(
+                f"https://madamnazar.io/madam-nazar-location-{date}",
+                headers=HEADERS, timeout=10
+            )
+            if resp.status_code == 200:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(resp.text, "html.parser")
+                tag = soup.find("meta", property="og:image")
+                if tag:
+                    return tag.get("content")
+        except Exception:
+            pass
+    return None
+
+
+def _from_madamnazar_page():
+    """يجيب الموقع والصورة من صفحة madamnazar.io"""
+    from bs4 import BeautifulSoup
+    for delta in [0, -1]:
+        date = (datetime.now(timezone.utc) + timedelta(days=delta)).strftime("%Y-%m-%d")
+        try:
+            resp = requests.get(
+                f"https://madamnazar.io/madam-nazar-location-{date}",
+                headers=HEADERS, timeout=12
+            )
+            logger.info(f"[madamnazar page] {date} → {resp.status_code}")
+            if resp.status_code != 200:
+                continue
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            og_img = soup.find("meta", property="og:image")
+            og_desc = soup.find("meta", property="og:description")
+
+            img_url = og_img.get("content") if og_img else None
+            desc = og_desc.get("content", "") if og_desc else ""
+            logger.info(f"[madamnazar page] desc: {desc[:100]}")
+
+            m = re.search(r"point\s*\d+\s*[—\-–]+\s*([^—\-–(]+?)\s*\(([^)]+)\)", desc, re.I)
+            if m:
+                return img_url, m.group(1).strip().title(), m.group(2).strip().title()
+        except Exception as e:
+            logger.error(f"[madamnazar page] {e}")
     return None, None, None
 
 
 def get_countdown():
     now = datetime.now(timezone.utc)
-    next_change = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    if now >= next_change:
-        next_change += timedelta(days=1)
-    total = int((next_change - now).total_seconds())
+    nxt = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    if now >= nxt:
+        nxt += timedelta(days=1)
+    total = int((nxt - now).total_seconds())
     return total // 3600, (total % 3600) // 60
 
 
@@ -158,8 +207,6 @@ async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=CHAT_ID, text=caption, parse_mode="Markdown")
 
 
-# ─── التشغيل ──────────────────────────────────────────────────
-
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
@@ -177,3 +224,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
