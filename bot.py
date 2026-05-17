@@ -91,10 +91,8 @@ def get_countdown():
 def build_caption(spot, nearest, hours, minutes):
     return (
         f"📍 *{spot}*\n"
-        f"━\n"
         f"أقرب فاست ترفل:\n"
         f"*{nearest}*\n"
-        f"━\n"
         f"⏳ يتغير بعد:\n"
         f"{hours}س {minutes}د"
     )
