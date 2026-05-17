@@ -1,4 +1,4 @@
-Import re
+import re
 import logging
 import requests
 from bs4 import BeautifulSoup
