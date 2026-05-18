@@ -24,7 +24,7 @@ POINT_MAP = {
     "3":  ("Black Balsam Rise", "Ambarino"),
     "4":  ("Big Valley",        "West Elizabeth"),
     "5":  ("Flatneck Station",  "New Hanover"),
-    "6":  ("Heartlands",        "New Hanover"),
+    "6":  ("The Heartlands",    "New Hanover"),
     "7":  ("Bluewater Marsh",   "Lemoyne"),
     "8":  ("Great Plains",      "West Elizabeth"),
     "9":  ("Scarlett Meadows",  "Lemoyne"),
@@ -33,17 +33,36 @@ POINT_MAP = {
     "12": ("Twin Rocks",        "New Austin"),
 }
 
-# ── Cooldown ──────────────────────────────────────────────────────────────────
+ID_MAP = {
+    "der": ("Bluewater Marsh",   "Lemoyne"),
+    "grz": ("Grizzlies East",    "Ambarino"),
+    "bbr": ("Black Balsam Rise", "Ambarino"),
+    "bgv": ("Big Valley",        "West Elizabeth"),
+    "blg": ("Scarlett Meadows",  "Lemoyne"),
+    "bwm": ("Bluewater Marsh",   "Lemoyne"),
+    "bch": ("Beecher's Hope",    "West Elizabeth"),
+    "twn": ("Twin Rocks",        "New Austin"),
+    "tmw": ("Tumbleweed",        "New Austin"),
+    "flt": ("Flatneck Station",  "New Hanover"),
+    "lmp": ("The Heartlands",    "New Hanover"),
+    "wnr": ("The Heartlands",    "New Hanover"),
+    "ann": ("Grizzlies East",    "Ambarino"),
+    "grw": ("Grizzlies East",    "Ambarino"),
+}
+
+# ── Cooldown ──────────────────────────────────────────────
+_cooldown_lock = threading.Lock()
 COOLDOWN: dict = {}
 
 def is_on_cooldown(user_id: int) -> bool:
     now = time.time()
-    if user_id in COOLDOWN and now - COOLDOWN[user_id] < 5:
-        return True
-    COOLDOWN[user_id] = now
+    with _cooldown_lock:
+        if user_id in COOLDOWN and now - COOLDOWN[user_id] < 10:
+            return True
+        COOLDOWN[user_id] = now
     return False
 
-# ── Cache ─────────────────────────────────────────────────────────────────────
+# ── Cache ─────────────────────────────────────────────────
 _cache: dict = {"img": None, "location": None, "region": None, "fetched_at": None}
 
 def _cache_valid() -> bool:
@@ -55,65 +74,43 @@ def _cache_valid() -> bool:
         last_reset -= timedelta(days=1)
     return _cache["fetched_at"] > last_reset
 
-# ── Fetch Nazar من madamnazar.io ──────────────────────────────────────────────
+# ── Fetch من madamnazar.io ────────────────────────────────
 def get_nazar():
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    url = f"https://madamnazar.io/madam-nazar-location-{today}"
+    # يجرب اليوم وأمس لو الصفحة ما نزلت بعد
+    for days_back in [0, 1]:
+        target = datetime.now(timezone.utc) - timedelta(days=days_back)
+        date_str = target.strftime("%Y-%m-%d")
+        url = f"https://madamnazar.io/madam-nazar-location-{date_str}"
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=15)
+            logger.info(f"madamnazar.io [{date_str}] status: {resp.status_code}")
+            if resp.status_code != 200:
+                continue
 
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        logger.info(f"madamnazar.io status: {resp.status_code}")
-
-        if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, "html.parser")
 
-            # الصورة
+            # الصورة/الخريطة من madamnazar.io
             img_tag = soup.find("img")
             img_url = img_tag["src"] if img_tag else None
 
-            # النص الكامل
             text = soup.get_text()
-            logger.info(f"page text: {text[:300]}")
-
-            # استخرج رقم الـ point
             point_match = re.search(r"point (\d+)", text, re.IGNORECASE)
             point = point_match.group(1) if point_match else None
 
             if point and point in POINT_MAP:
                 name, region = POINT_MAP[point]
-                logger.info(f"✅ point {point} → {name}, {region}")
+                logger.info(f"✅ point {point} → {name}, {region} | img: {img_url}")
                 return img_url, name, region
 
-            # fallback: استخرج المنطقة من النص
-            region_match = re.search(r"\(([^)]+)\)", text)
-            region = region_match.group(1).title() if region_match else ""
-            return img_url, f"Point {point}", region
+        except Exception as e:
+            logger.error(f"madamnazar.io error [{date_str}]: {e}")
 
-    except Exception as e:
-        logger.error(f"madamnazar.io error: {e}")
-
-    # fallback على jeanropke لو madamnazar.io فشل
-    logger.warning("Falling back to jeanropke...")
+    # Fallback على jeanropke
+    logger.warning("Fallback → jeanropke")
     return _get_nazar_jeanropke()
 
 
 def _get_nazar_jeanropke():
-    ID_MAP = {
-        "der": ("Dewberry Creek",    "Lemoyne"),
-        "grz": ("Grizzlies East",    "Ambarino"),
-        "bbr": ("Black Balsam Rise", "Ambarino"),
-        "bgv": ("Big Valley",        "West Elizabeth"),
-        "blg": ("Bolger Glade",      "Lemoyne"),
-        "bwm": ("Bluewater Marsh",   "Lemoyne"),
-        "bch": ("Beecher's Hope",    "West Elizabeth"),
-        "twn": ("Twin Rocks",        "New Austin"),
-        "tmw": ("Tumbleweed",        "New Austin"),
-        "flt": ("Flatneck Station",  "New Hanover"),
-        "lmp": ("Limpany",           "New Hanover"),
-        "wnr": ("Window Rock",       "New Hanover"),
-        "ann": ("Annesburg",         "New Hanover"),
-        "grw": ("Grizzlies West",    "Ambarino"),
-    }
     sources = [
         ("api",   "https://api.github.com/repos/jeanropke/RDR2CollectorsMap/contents/data/nazar.json"),
         ("pages", "https://jeanropke.github.io/RDR2CollectorsMap/data/nazar.json"),
@@ -131,11 +128,12 @@ def _get_nazar_jeanropke():
             data = json.loads(raw)
             first = data[0] if isinstance(data, list) else data
             loc_id = first.get("id", "").strip().lower()
+            logger.info(f"jeanropke loc_id: {loc_id}")
             if loc_id in ID_MAP:
                 loc, region = ID_MAP[loc_id]
                 return None, loc, region
         except Exception as e:
-            logger.error(f"[{name}] {e}")
+            logger.error(f"jeanropke [{name}] error: {e}")
     return None, None, None
 
 
@@ -152,7 +150,7 @@ def get_nazar_cached():
         })
     return img, location, region
 
-# ── Countdown ─────────────────────────────────────────────────────────────────
+# ── Countdown ─────────────────────────────────────────────
 def get_countdown():
     now = datetime.now(timezone.utc)
     nxt = now.replace(hour=6, minute=0, second=0, microsecond=0)
@@ -161,7 +159,7 @@ def get_countdown():
     total = int((nxt - now).total_seconds())
     return total // 3600, (total % 3600) // 60
 
-# ── Watchdog ──────────────────────────────────────────────────────────────────
+# ── Watchdog ──────────────────────────────────────────────
 def watchdog():
     while True:
         time.sleep(300)
@@ -178,7 +176,7 @@ def watchdog():
             logger.error(f"🔴 Watchdog فشل: {e}")
             sys.exit(1)
 
-# ── Handlers ──────────────────────────────────────────────────────────────────
+# ── Handlers ──────────────────────────────────────────────
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     if isinstance(context.error, Conflict):
         logger.warning("⚠️ Conflict")
@@ -259,7 +257,7 @@ async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
         chat_id=CHAT_ID, text=caption, parse_mode="Markdown"
     )
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Main ──────────────────────────────────────────────────
 def main():
     threading.Thread(target=watchdog, daemon=True).start()
     logger.info("👁️ Watchdog شغال")
