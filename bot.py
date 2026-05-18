@@ -16,27 +16,38 @@ COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 FALLBACK_IMG = "https://static.wikia.nocookie.net/reddead/images/5/5e/Madam_Nazar_RDO.png"
 
 LOCATIONS = {
-    "grizzlies east":   ("Annesburg",        "grizzlies-east"),
-    "grizzlies west":   ("Strawberry",       "grizzlies-west"),
-    "big valley":       ("Strawberry",       "big-valley"),
-    "tall trees":       ("Strawberry",       "big-valley"),
-    "west elizabeth":   ("Blackwater",       "west-elizabeth"),
-    "great plains":     ("Blackwater",       "west-elizabeth"),
-    "flat iron lake":   ("Thieves Landing",  "flat-iron-lake"),
-    "new hanover":      ("Valentine",        "new-hanover"),
-    "heartlands":       ("Valentine",        "heartlands"),
-    "bluewater marsh":  ("Saint Denis",      "bluewater-marsh"),
-    "lemoyne":          ("Rhodes",           "lemoyne"),
-    "scarlett meadows": ("Rhodes",           "scarlett-meadows"),
-    "scarlet meadows":  ("Rhodes",           "scarlett-meadows"),
-    "bolger glade":     ("Rhodes",           "scarlett-meadows"),
-    "bayou nwa":        ("Saint Denis",      "bayou-nwa"),
-    "roanoke ridge":    ("Annesburg",        "roanoke-ridge"),
-    "new austin":       ("Armadillo",        "new-austin"),
-    "cholla springs":   ("Armadillo",        "cholla-springs"),
-    "gaptooth ridge":   ("Tumbleweed",       "gaptooth-ridge"),
-    "rio bravo":        ("Tumbleweed",       "rio-bravo"),
-    "ambarino":         ("Colter",           "ambarino"),
+    "grizzlies east":   ("Annesburg",       "grizzlies-east"),
+    "grizzlies west":   ("Strawberry",      "grizzlies-west"),
+    "big valley":       ("Strawberry",      "big-valley"),
+    "tall trees":       ("Strawberry",      "big-valley"),
+    "west elizabeth":   ("Blackwater",      "west-elizabeth"),
+    "great plains":     ("Blackwater",      "west-elizabeth"),
+    "flat iron lake":   ("Thieves Landing", "flat-iron-lake"),
+    "new hanover":      ("Valentine",       "new-hanover"),
+    "heartlands":       ("Valentine",       "heartlands"),
+    "bluewater marsh":  ("Saint Denis",     "bluewater-marsh"),
+    "lemoyne":          ("Rhodes",          "lemoyne"),
+    "scarlett meadows": ("Rhodes",          "scarlett-meadows"),
+    "scarlet meadows":  ("Rhodes",          "scarlett-meadows"),
+    "bolger glade":     ("Rhodes",          "scarlett-meadows"),
+    "bayou nwa":        ("Saint Denis",     "bayou-nwa"),
+    "roanoke ridge":    ("Annesburg",       "roanoke-ridge"),
+    "new austin":       ("Armadillo",       "new-austin"),
+    "cholla springs":   ("Armadillo",       "cholla-springs"),
+    "gaptooth ridge":   ("Tumbleweed",      "gaptooth-ridge"),
+    "rio bravo":        ("Tumbleweed",      "rio-bravo"),
+    "ambarino":         ("Colter",          "ambarino"),
+    "o'creagh":         ("Annesburg",       "grizzlies-east"),
+    "brandywine":       ("Annesburg",       "roanoke-ridge"),
+    "cumberland":       ("Valentine",       "new-hanover"),
+    "rio del lobo":     ("Tumbleweed",      "rio-bravo"),
+    "flat iron":        ("Thieves Landing", "flat-iron-lake"),
+    "owanjila":         ("Strawberry",      "big-valley"),
+    "stillwater":       ("Valentine",       "new-hanover"),
+    "annesburg":        ("Annesburg",       "roanoke-ridge"),
+    "rhodes":           ("Rhodes",          "lemoyne"),
+    "saint denis":      ("Saint Denis",     "bayou-nwa"),
+    "valentine":        ("Valentine",       "new-hanover"),
 }
 
 
@@ -59,43 +70,35 @@ def get_nazar():
             if "Where is Madam Nazar Today?" in h2.get_text():
                 p = h2.find_next_sibling("p")
                 full_text = p.get_text(strip=True) if p else ""
-                logger.info(f"Full text: {full_text}")
+                logger.info(f"Raw: {full_text}")
 
-                # اقرأ المنطقة الرئيسية فقط: "is in Lemoyne today"
-                main_match = re.search(r"is (?:near|in) ([A-Za-z\s]+?) today", full_text)
-                # أو الموقع التفصيلي: "She is in Bolger Glade"
-                detail_match = re.search(r"She is (?:near|in) ([A-Za-z\s']+?)\.", full_text)
-
-                spot = ""
-                if main_match:
-                    spot = main_match.group(1).strip()
-                elif detail_match:
-                    spot = detail_match.group(1).strip()
+                # سحب مكان نزار بالضبط
+                spot_match = re.search(r"She is (?:near|in) (.+?)\.", full_text)
+                spot = spot_match.group(1).strip() if spot_match else ""
 
                 if not spot:
-                    logger.warning("No location found in text")
+                    logger.warning("No location found")
                     return None, None, None
 
-                return _build_result(spot)
+                # البحث عن الصورة والفاست ترفل
+                spot_lower = spot.lower()
+                nearest = "غير معروف"
+                img_url = FALLBACK_IMG
+
+                for key, (city, slug) in LOCATIONS.items():
+                    if key in spot_lower:
+                        nearest = city
+                        img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
+                        break
+
+                logger.info(f"Spot: {spot} | Nearest: {nearest}")
+                return img_url, spot, nearest
+
+        return None, None, None
 
     except Exception as e:
         logger.error(f"Error: {e}")
         return None, None, None
-
-
-def _build_result(spot):
-    spot_lower = spot.lower()
-    nearest = "غير معروف"
-    img_url = FALLBACK_IMG
-
-    for key, (city, slug) in LOCATIONS.items():
-        if key in spot_lower:
-            nearest = city
-            img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
-            break
-
-    logger.info(f"Location: {spot} | Nearest: {nearest} | Img: {img_url}")
-    return img_url, spot, nearest
 
 
 def get_countdown():
@@ -142,7 +145,8 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_photo(
                 photo=img_url, caption=caption, parse_mode="Markdown"
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Photo failed: {e}")
             await update.message.reply_text(caption, parse_mode="Markdown")
     else:
         await msg.edit_text("❌ ما قدرت أجيب الموقع، حاول مرة ثانية.")
