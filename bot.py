@@ -1,8 +1,9 @@
-import time, base64, json, logging, requests, sys, threading
+import re, time, base64, json, logging, requests, sys, threading
 from datetime import datetime, timezone, timedelta, time as dtime
 from telegram import Update
 from telegram.error import Conflict, NetworkError
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from bs4 import BeautifulSoup
 import pytz
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -17,21 +18,19 @@ HEADERS = {
     "Cache-Control": "no-cache",
 }
 
-ID_MAP = {
-    "der": ("Dewberry Creek",    "Lemoyne"),
-    "grz": ("Grizzlies East",    "Ambarino"),
-    "bbr": ("Black Balsam Rise", "Ambarino"),
-    "bgv": ("Big Valley",        "West Elizabeth"),
-    "blg": ("Bolger Glade",      "Lemoyne"),
-    "bwm": ("Bluewater Marsh",   "Lemoyne"),
-    "bch": ("Beecher's Hope",    "West Elizabeth"),
-    "twn": ("Twin Rocks",        "New Austin"),
-    "tmw": ("Tumbleweed",        "New Austin"),
-    "flt": ("Flatneck Station",  "New Hanover"),
-    "lmp": ("Limpany",           "New Hanover"),
-    "wnr": ("Window Rock",       "New Hanover"),
-    "ann": ("Annesburg",         "New Hanover"),
-    "grw": ("Grizzlies West",    "Ambarino"),
+POINT_MAP = {
+    "1":  ("Grizzlies East",    "Ambarino"),
+    "2":  ("Grizzlies East",    "Ambarino"),
+    "3":  ("Black Balsam Rise", "Ambarino"),
+    "4":  ("Big Valley",        "West Elizabeth"),
+    "5":  ("Flatneck Station",  "New Hanover"),
+    "6":  ("Heartlands",        "New Hanover"),
+    "7":  ("Bluewater Marsh",   "Lemoyne"),
+    "8":  ("Great Plains",      "West Elizabeth"),
+    "9":  ("Scarlett Meadows",  "Lemoyne"),
+    "10": ("Tumbleweed",        "New Austin"),
+    "11": ("Hennigan's Stead",  "New Austin"),
+    "12": ("Twin Rocks",        "New Austin"),
 }
 
 # ── Cooldown ──────────────────────────────────────────────────────────────────
@@ -56,31 +55,65 @@ def _cache_valid() -> bool:
         last_reset -= timedelta(days=1)
     return _cache["fetched_at"] > last_reset
 
-# ── Image ─────────────────────────────────────────────────────────────────────
-def _get_image(location_name: str):
-    slug = (location_name.lower()
-            .replace(" ", "-")
-            .replace("'", "")
-            .replace("'", ""))
-    url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
-    try:
-        r = requests.head(url, timeout=5)
-        if r.status_code == 200:
-            return url
-    except Exception:
-        pass
-    return None
-
-# ── Short Name ────────────────────────────────────────────────────────────────
-def _short_name(full_name: str) -> str:
-    for sep in [" in ", " near ", " at ", " - "]:
-        idx = full_name.lower().find(sep)
-        if idx != -1:
-            return full_name[:idx].strip().title()
-    return full_name.strip().title()
-
-# ── Fetch Nazar ───────────────────────────────────────────────────────────────
+# ── Fetch Nazar من madamnazar.io ──────────────────────────────────────────────
 def get_nazar():
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    url = f"https://madamnazar.io/madam-nazar-location-{today}"
+
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=15)
+        logger.info(f"madamnazar.io status: {resp.status_code}")
+
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            # الصورة
+            img_tag = soup.find("img")
+            img_url = img_tag["src"] if img_tag else None
+
+            # النص الكامل
+            text = soup.get_text()
+            logger.info(f"page text: {text[:300]}")
+
+            # استخرج رقم الـ point
+            point_match = re.search(r"point (\d+)", text, re.IGNORECASE)
+            point = point_match.group(1) if point_match else None
+
+            if point and point in POINT_MAP:
+                name, region = POINT_MAP[point]
+                logger.info(f"✅ point {point} → {name}, {region}")
+                return img_url, name, region
+
+            # fallback: استخرج المنطقة من النص
+            region_match = re.search(r"\(([^)]+)\)", text)
+            region = region_match.group(1).title() if region_match else ""
+            return img_url, f"Point {point}", region
+
+    except Exception as e:
+        logger.error(f"madamnazar.io error: {e}")
+
+    # fallback على jeanropke لو madamnazar.io فشل
+    logger.warning("Falling back to jeanropke...")
+    return _get_nazar_jeanropke()
+
+
+def _get_nazar_jeanropke():
+    ID_MAP = {
+        "der": ("Dewberry Creek",    "Lemoyne"),
+        "grz": ("Grizzlies East",    "Ambarino"),
+        "bbr": ("Black Balsam Rise", "Ambarino"),
+        "bgv": ("Big Valley",        "West Elizabeth"),
+        "blg": ("Bolger Glade",      "Lemoyne"),
+        "bwm": ("Bluewater Marsh",   "Lemoyne"),
+        "bch": ("Beecher's Hope",    "West Elizabeth"),
+        "twn": ("Twin Rocks",        "New Austin"),
+        "tmw": ("Tumbleweed",        "New Austin"),
+        "flt": ("Flatneck Station",  "New Hanover"),
+        "lmp": ("Limpany",           "New Hanover"),
+        "wnr": ("Window Rock",       "New Hanover"),
+        "ann": ("Annesburg",         "New Hanover"),
+        "grw": ("Grizzlies West",    "Ambarino"),
+    }
     sources = [
         ("api",   "https://api.github.com/repos/jeanropke/RDR2CollectorsMap/contents/data/nazar.json"),
         ("pages", "https://jeanropke.github.io/RDR2CollectorsMap/data/nazar.json"),
@@ -90,36 +123,19 @@ def get_nazar():
             headers = {**HEADERS}
             if name == "api":
                 headers["Accept"] = "application/vnd.github.v3+json"
-
             resp = requests.get(url, headers=headers, timeout=15)
             if resp.status_code != 200:
                 continue
-
             raw = (base64.b64decode(resp.json()["content"]).decode()
                    if name == "api" else resp.text)
             data = json.loads(raw)
-
             first = data[0] if isinstance(data, list) else data
             loc_id = first.get("id", "").strip().lower()
-
-            logger.info(f"✅ loc_id: '{loc_id}' | full: {first}")
-
             if loc_id in ID_MAP:
                 loc, region = ID_MAP[loc_id]
-                return _get_image(loc), loc, region
-
-            full = (first.get("name") or first.get("location") or
-                    first.get("title") or "")
-            if full:
-                short = _short_name(full)
-                return _get_image(short), short, first.get("region", "")
-
-            if loc_id:
-                return _get_image(loc_id), loc_id.upper(), first.get("region", "")
-
+                return None, loc, region
         except Exception as e:
             logger.error(f"[{name}] {e}")
-
     return None, None, None
 
 
@@ -148,7 +164,7 @@ def get_countdown():
 # ── Watchdog ──────────────────────────────────────────────────────────────────
 def watchdog():
     while True:
-        time.sleep(300)  # كل 5 دقائق
+        time.sleep(300)
         try:
             r = requests.get(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getMe",
@@ -159,17 +175,17 @@ def watchdog():
             else:
                 raise Exception(f"status {r.status_code}")
         except Exception as e:
-            logger.error(f"🔴 Watchdog فشل: {e} — إعادة تشغيل...")
-            sys.exit(1)  # Railway يعيد التشغيل تلقائي
+            logger.error(f"🔴 Watchdog فشل: {e}")
+            sys.exit(1)
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     if isinstance(context.error, Conflict):
-        logger.warning("⚠️ Conflict — نسختين شغالتين!")
+        logger.warning("⚠️ Conflict")
     elif isinstance(context.error, NetworkError):
-        logger.warning(f"🌐 Network: {context.error}")
+        logger.warning(f"Network: {context.error}")
     else:
-        logger.error(f"❌ Error: {context.error}")
+        logger.error(f"Error: {context.error}")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -207,7 +223,7 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         except Exception as e:
-            logger.error(f"🖼️ صورة فشلت: {e}")
+            logger.error(f"صورة فشلت: {e}")
 
     await update.message.reply_text(caption, parse_mode="Markdown")
 
@@ -219,7 +235,7 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
-    _cache["fetched_at"] = None  # امسح الكاش عشان يجيب موقع جديد
+    _cache["fetched_at"] = None
     img_url, location, region = get_nazar_cached()
 
     if not location:
