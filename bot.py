@@ -50,6 +50,21 @@ ID_MAP = {
     "grw": ("Grizzlies East",    "Ambarino"),
 }
 
+FAST_TRAVEL_MAP = {
+    "Grizzlies East":    "Annesburg",
+    "Black Balsam Rise": "Annesburg",
+    "Big Valley":        "Strawberry",
+    "Flatneck Station":  "Flatneck Station",
+    "The Heartlands":    "Emerald Ranch",
+    "Bluewater Marsh":   "Saint Denis",
+    "Great Plains":      "Blackwater",
+    "Scarlett Meadows":  "Rhodes",
+    "Tumbleweed":        "Tumbleweed",
+    "Hennigan's Stead":  "Armadillo",
+    "Twin Rocks":        "Armadillo",
+    "Beecher's Hope":    "Blackwater",
+}
+
 # ── Cooldown ──────────────────────────────────────────────
 _cooldown_lock = threading.Lock()
 COOLDOWN: dict = {}
@@ -76,7 +91,6 @@ def _cache_valid() -> bool:
 
 # ── Fetch من madamnazar.io ────────────────────────────────
 def get_nazar():
-    # يجرب اليوم وأمس لو الصفحة ما نزلت بعد
     for days_back in [0, 1]:
         target = datetime.now(timezone.utc) - timedelta(days=days_back)
         date_str = target.strftime("%Y-%m-%d")
@@ -86,26 +100,19 @@ def get_nazar():
             logger.info(f"madamnazar.io [{date_str}] status: {resp.status_code}")
             if resp.status_code != 200:
                 continue
-
             soup = BeautifulSoup(resp.text, "html.parser")
-
-            # الصورة/الخريطة من madamnazar.io
             img_tag = soup.find("img")
             img_url = img_tag["src"] if img_tag else None
-
             text = soup.get_text()
             point_match = re.search(r"point (\d+)", text, re.IGNORECASE)
             point = point_match.group(1) if point_match else None
-
             if point and point in POINT_MAP:
                 name, region = POINT_MAP[point]
-                logger.info(f"✅ point {point} → {name}, {region} | img: {img_url}")
+                logger.info(f"✅ point {point} → {name}")
                 return img_url, name, region
-
         except Exception as e:
             logger.error(f"madamnazar.io error [{date_str}]: {e}")
 
-    # Fallback على jeanropke
     logger.warning("Fallback → jeanropke")
     return _get_nazar_jeanropke()
 
@@ -128,7 +135,6 @@ def _get_nazar_jeanropke():
             data = json.loads(raw)
             first = data[0] if isinstance(data, list) else data
             loc_id = first.get("id", "").strip().lower()
-            logger.info(f"jeanropke loc_id: {loc_id}")
             if loc_id in ID_MAP:
                 loc, region = ID_MAP[loc_id]
                 return None, loc, region
@@ -207,10 +213,13 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     hours, minutes = get_countdown()
-    caption = f"📍 *{location}*"
-    if region:
-        caption += f"\n_{region}_"
-    caption += f"\n\n⏳ يتغير بعد *{hours} ساعة و{minutes} دقيقة*"
+    fast = FAST_TRAVEL_MAP.get(location, "غير معروف")
+
+    caption = (
+        f"📍 *{location}*\n\n"
+        f"أقرب فاست ترافل: *{fast}*\n"
+        f"⏳ يتغير بعد *{hours} ساعة و{minutes} دقيقة*"
+    )
 
     await msg.delete()
 
@@ -239,9 +248,12 @@ async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
     if not location:
         return
 
-    caption = f"📍 *{location}*"
-    if region:
-        caption += f"\n_{region}_"
+    fast = FAST_TRAVEL_MAP.get(location, "غير معروف")
+
+    caption = (
+        f"📍 *{location}*\n\n"
+        f"أقرب فاست ترافل: *{fast}*"
+    )
 
     if img_url:
         try:
