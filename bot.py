@@ -13,25 +13,30 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
 CHAT_ID = "8202101663"
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
+FALLBACK_IMG = "https://static.wikia.nocookie.net/reddead/images/5/5e/Madam_Nazar_RDO.png"
 
-NEAREST_FAST_TRAVEL = {
-    "grizzlies east":   "Annesburg",
-    "grizzlies west":   "Strawberry",
-    "big valley":       "Strawberry",
-    "west elizabeth":   "Blackwater",
-    "flat iron lake":   "Thieves Landing",
-    "new hanover":      "Valentine",
-    "heartlands":       "Valentine",
-    "bluewater marsh":  "Saint Denis",
-    "lemoyne":          "Rhodes",
-    "scarlett meadows": "Rhodes",
-    "bayou nwa":        "Saint Denis",
-    "roanoke ridge":    "Annesburg",
-    "new austin":       "Armadillo",
-    "cholla springs":   "Armadillo",
-    "gaptooth ridge":   "Tumbleweed",
-    "rio bravo":        "Tumbleweed",
-    "ambarino":         "Colter",
+LOCATIONS = {
+    "grizzlies east":   ("Annesburg",        "grizzlies-east"),
+    "grizzlies west":   ("Strawberry",       "grizzlies-west"),
+    "big valley":       ("Strawberry",       "big-valley"),
+    "tall trees":       ("Strawberry",       "big-valley"),
+    "west elizabeth":   ("Blackwater",       "west-elizabeth"),
+    "great plains":     ("Blackwater",       "west-elizabeth"),
+    "flat iron lake":   ("Thieves Landing",  "flat-iron-lake"),
+    "new hanover":      ("Valentine",        "new-hanover"),
+    "heartlands":       ("Valentine",        "heartlands"),
+    "bluewater marsh":  ("Saint Denis",      "bluewater-marsh"),
+    "lemoyne":          ("Rhodes",           "lemoyne"),
+    "scarlett meadows": ("Rhodes",           "scarlett-meadows"),
+    "scarlet meadows":  ("Rhodes",           "scarlett-meadows"),
+    "bolger glade":     ("Rhodes",           "scarlett-meadows"),
+    "bayou nwa":        ("Saint Denis",      "bayou-nwa"),
+    "roanoke ridge":    ("Annesburg",        "roanoke-ridge"),
+    "new austin":       ("Armadillo",        "new-austin"),
+    "cholla springs":   ("Armadillo",        "cholla-springs"),
+    "gaptooth ridge":   ("Tumbleweed",       "gaptooth-ridge"),
+    "rio bravo":        ("Tumbleweed",       "rio-bravo"),
+    "ambarino":         ("Colter",           "ambarino"),
 }
 
 
@@ -54,27 +59,43 @@ def get_nazar():
             if "Where is Madam Nazar Today?" in h2.get_text():
                 p = h2.find_next_sibling("p")
                 full_text = p.get_text(strip=True) if p else ""
+                logger.info(f"Full text: {full_text}")
 
-                spot_match = re.search(r"She is (?:near|in) ([^,\.]+)", full_text)
-                spot = spot_match.group(1).strip() if spot_match else ""
+                # اقرأ المنطقة الرئيسية فقط: "is in Lemoyne today"
+                main_match = re.search(r"is (?:near|in) ([A-Za-z\s]+?) today", full_text)
+                # أو الموقع التفصيلي: "She is in Bolger Glade"
+                detail_match = re.search(r"She is (?:near|in) ([A-Za-z\s']+?)\.", full_text)
 
-                img_slug = spot.lower().replace(" ", "-").replace("'", "")
-                img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{img_slug}.jpg"
+                spot = ""
+                if main_match:
+                    spot = main_match.group(1).strip()
+                elif detail_match:
+                    spot = detail_match.group(1).strip()
 
-                nearest = "غير معروف"
-                for key, city in NEAREST_FAST_TRAVEL.items():
-                    if key in spot.lower():
-                        nearest = city
-                        break
+                if not spot:
+                    logger.warning("No location found in text")
+                    return None, None, None
 
-                logger.info(f"Location: {spot} | Nearest: {nearest} | Image: {img_url}")
-                return img_url, spot, nearest
-
-        return None, None, None
+                return _build_result(spot)
 
     except Exception as e:
-        logger.error(f"Scraping error: {e}")
+        logger.error(f"Error: {e}")
         return None, None, None
+
+
+def _build_result(spot):
+    spot_lower = spot.lower()
+    nearest = "غير معروف"
+    img_url = FALLBACK_IMG
+
+    for key, (city, slug) in LOCATIONS.items():
+        if key in spot_lower:
+            nearest = city
+            img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
+            break
+
+    logger.info(f"Location: {spot} | Nearest: {nearest} | Img: {img_url}")
+    return img_url, spot, nearest
 
 
 def get_countdown():
@@ -91,8 +112,10 @@ def get_countdown():
 def build_caption(spot, nearest, hours, minutes):
     return (
         f"📍 *{spot}*\n"
-        f"أقرب فاست ترفل:\n"
+        f"━━━━━━━━━━━━\n"
+        f"🏙️ أقرب فاست ترفل:\n"
         f"*{nearest}*\n"
+        f"━━━━━━━━━━━━\n"
         f"⏳ يتغير بعد:\n"
         f"{hours}س {minutes}د"
     )
@@ -115,15 +138,12 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         hours, minutes = get_countdown()
         caption = build_caption(spot, nearest, hours, minutes)
         await msg.delete()
-        if img_url:
-            try:
-                await update.message.reply_photo(
-                    photo=img_url, caption=caption, parse_mode="Markdown"
-                )
-                return
-            except Exception as e:
-                logger.error(f"Photo failed: {e}")
-        await update.message.reply_text(caption, parse_mode="Markdown")
+        try:
+            await update.message.reply_photo(
+                photo=img_url, caption=caption, parse_mode="Markdown"
+            )
+        except Exception:
+            await update.message.reply_text(caption, parse_mode="Markdown")
     else:
         await msg.edit_text("❌ ما قدرت أجيب الموقع، حاول مرة ثانية.")
 
@@ -138,18 +158,16 @@ async def text_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
     img_url, spot, nearest = get_nazar()
-    if spot:
-        hours, minutes = get_countdown()
-        caption = build_caption(spot, nearest, hours, minutes)
-        if img_url:
-            try:
-                await context.bot.send_photo(
-                    chat_id=CHAT_ID, photo=img_url,
-                    caption=caption, parse_mode="Markdown"
-                )
-                return
-            except Exception:
-                pass
+    if not spot:
+        return
+    hours, minutes = get_countdown()
+    caption = build_caption(spot, nearest, hours, minutes)
+    try:
+        await context.bot.send_photo(
+            chat_id=CHAT_ID, photo=img_url,
+            caption=caption, parse_mode="Markdown"
+        )
+    except Exception:
         await context.bot.send_message(
             chat_id=CHAT_ID, text=caption, parse_mode="Markdown"
         )
@@ -157,13 +175,11 @@ async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("nazar", send_nazar))
     app.add_handler(CommandHandler("map", map_command))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_nazar))
     app.job_queue.run_daily(daily_auto_send, time=time(6, 10, 0, tzinfo=pytz.UTC))
-
     logger.info("🤖 Bot started!")
     app.run_polling(drop_pending_updates=True)
 
