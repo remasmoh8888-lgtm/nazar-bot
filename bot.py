@@ -22,6 +22,7 @@ HEADERS = {
     "Cache-Control": "no-cache",
 }
 
+# ترجمة id من nazar.json إلى اسم قصير + منطقة
 ID_MAP = {
     "der": ("Bluewater Marsh",   "Lemoyne"),
     "grz": ("Grizzlies East",    "Ambarino"),
@@ -41,7 +42,10 @@ ID_MAP = {
 
 
 def _short_name(full_name: str) -> str:
-    """يقصّر: 'Bolger Glade in southern Scarlet Meadows' → 'Bolger Glade'"""
+    """يقصّر الاسم: 'Bolger Glade in southern Scarlet Meadows' → 'Bolger Glade'"""
+    if not full_name:
+        return full_name
+    # نقطع عند " in " أو " near " أو " at "
     for sep in [" in ", " near ", " at ", " - "]:
         if sep in full_name.lower():
             return full_name[:full_name.lower().index(sep)].strip().title()
@@ -49,69 +53,79 @@ def _short_name(full_name: str) -> str:
 
 
 def _image_url(location_name: str) -> str:
+    """يبني رابط الصورة من rdocollector CDN (صور ثابتة دائماً متاحة)"""
     slug = location_name.lower().replace(" ", "-").replace("'", "").replace("'", "")
     return f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
 
 
 def get_nazar():
     urls = [
-        ("api", "https://api.github.com/repos/jeanropke/RDR2CollectorsMap/contents/data/nazar.json"),
-        ("pages", "https://jeanropke.github.io/RDR2CollectorsMap/data/nazar.json"),
+        ("github_api", "https://api.github.com/repos/jeanropke/RDR2CollectorsMap/contents/data/nazar.json"),
+        ("github_pages", "https://jeanropke.github.io/RDR2CollectorsMap/data/nazar.json"),
     ]
 
     for source, url in urls:
         try:
-            h = {**HEADERS}
-            if source == "api":
-                h["Accept"] = "application/vnd.github.v3+json"
+            headers = {**HEADERS}
+            if source == "github_api":
+                headers["Accept"] = "application/vnd.github.v3+json"
 
-            resp = requests.get(url, headers=h, timeout=15)
+            resp = requests.get(url, headers=headers, timeout=15)
             logger.info(f"[{source}] {resp.status_code}")
+
             if resp.status_code != 200:
                 continue
 
-            raw = base64.b64decode(resp.json()["content"]).decode("utf-8") if source == "api" else resp.text
-            logger.info(f"[{source}] {raw[:400]}")
+            # GitHub API يرجع base64
+            if source == "github_api":
+                raw = base64.b64decode(resp.json()["content"]).decode("utf-8")
+            else:
+                raw = resp.text
+
+            logger.info(f"[{source}] raw: {raw[:300]}")
             data = json.loads(raw)
 
-            if not isinstance(data, list) or not data:
+            if not isinstance(data, list) or len(data) == 0:
+                logger.warning(f"[{source}] unexpected format")
                 continue
 
+            # العنصر الأول = الموقع اليوم
             first = data[0]
-            logger.info(f"First item: {first}")
+            logger.info(f"[{source}] first item: {first}")
 
-            # ── اسم الموقع ────────────────────────────────────
             loc_id = first.get("id", "")
-            full_name = first.get("name") or first.get("location") or first.get("title") or ""
 
+            # نجرب ID_MAP أولاً (اسم قصير)
             if loc_id in ID_MAP:
                 name, region = ID_MAP[loc_id]
-            elif full_name:
-                name = _short_name(full_name)
-                region = first.get("region", "")
-            else:
-                name = loc_id.upper()
-                region = ""
+                img = _image_url(name)
+                logger.info(f"✅ ID match: {loc_id} → {name}")
+                return img, name, region
 
-            # ── فاست ترافل ───────────────────────────────────
-            fast_travel = (
-                first.get("nearestFastTravel") or
-                first.get("fastTravel") or
-                first.get("nearest_fast_travel") or
-                first.get("fast_travel") or
-                first.get("nearestStation") or
-                first.get("station") or
-                None
+            # نجرب الحقل "name" من nazar.json
+            full_name = (
+                first.get("name") or
+                first.get("location") or
+                first.get("title") or
+                ""
             )
+            if full_name:
+                short = _short_name(full_name)
+                img = _image_url(short)
+                logger.info(f"✅ Name field: {full_name} → {short}")
+                return img, short, ""
 
-            img = _image_url(name)
-            logger.info(f"✅ {name} | FT: {fast_travel} | img: {img}")
-            return img, name, region, fast_travel
+            # نجرب الحقل "region"
+            region = first.get("region", "")
+            if loc_id:
+                logger.warning(f"Unknown id: {loc_id} | full item: {first}")
+                img = _image_url(loc_id)
+                return img, loc_id.upper(), region
 
         except Exception as e:
             logger.error(f"[{source}] error: {e}")
 
-    return None, None, None, None
+    return None, None, None
 
 
 def get_countdown():
@@ -144,18 +158,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
-    img_url, location, region, fast_travel = get_nazar()
+    img_url, location, region = get_nazar()
 
     if location:
         hours, minutes = get_countdown()
-        ft = fast_travel if fast_travel else "غير معروف"
-
-        caption = (
-            f"📍 *{location}*\n\n"
-            f"أقرب فاست ترفل:\n"
-            f"*{ft}*\n\n"
-            f"⏳ يتغير بعد: *{hours}س {minutes}د*"
-        )
+        caption = f"📍 *{location}*"
+        if region:
+            caption += f"\n_{region}_"
+        caption += f"\n\n⏳ يتغير بعد *{hours} ساعة و{minutes} دقيقة*"
 
         await msg.delete()
         if img_url:
@@ -165,7 +175,7 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             except Exception as e:
-                logger.error(f"Photo failed: {e}")
+                logger.error(f"Photo failed ({img_url}): {e}")
         await update.message.reply_text(caption, parse_mode="Markdown")
     else:
         await msg.edit_text("❌ ما قدرت أجيب الموقع، حاول مرة ثانية.")
@@ -184,15 +194,11 @@ async def text_collector(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
-    img_url, location, region, fast_travel = get_nazar()
+    img_url, location, region = get_nazar()
     if location:
-        ft = fast_travel if fast_travel else "غير معروف"
-        caption = (
-            f"📍 *{location}*\n\n"
-            f"أقرب فاست ترفل:\n"
-            f"*{ft}*\n\n"
-            f"⏳ تحدّث الآن 🔄"
-        )
+        caption = f"📍 *{location}*"
+        if region:
+            caption += f"\n_{region}_"
         if img_url:
             try:
                 await context.bot.send_photo(
