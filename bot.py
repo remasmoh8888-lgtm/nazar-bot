@@ -1,9 +1,4 @@
-import re
-import time
-import base64
-import json
-import logging
-import requests
+import time, base64, json, logging, requests, sys, threading
 from datetime import datetime, timezone, timedelta, time as dtime
 from telegram import Update
 from telegram.error import Conflict, NetworkError
@@ -22,9 +17,8 @@ HEADERS = {
     "Cache-Control": "no-cache",
 }
 
-# ترجمة id من nazar.json إلى اسم قصير + منطقة
 ID_MAP = {
-    "der": ("Bluewater Marsh",   "Lemoyne"),
+    "der": ("Dewberry Creek",    "Lemoyne"),
     "grz": ("Grizzlies East",    "Ambarino"),
     "bbr": ("Black Balsam Rise", "Ambarino"),
     "bgv": ("Big Valley",        "West Elizabeth"),
@@ -40,94 +34,109 @@ ID_MAP = {
     "grw": ("Grizzlies West",    "Ambarino"),
 }
 
+# ── Cooldown ──────────────────────────────────────────────────────────────────
+COOLDOWN: dict = {}
 
+def is_on_cooldown(user_id: int) -> bool:
+    now = time.time()
+    if user_id in COOLDOWN and now - COOLDOWN[user_id] < 5:
+        return True
+    COOLDOWN[user_id] = now
+    return False
+
+# ── Cache ─────────────────────────────────────────────────────────────────────
+_cache: dict = {"img": None, "location": None, "region": None, "fetched_at": None}
+
+def _cache_valid() -> bool:
+    if not _cache["fetched_at"]:
+        return False
+    now = datetime.now(timezone.utc)
+    last_reset = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    if now.hour < 6:
+        last_reset -= timedelta(days=1)
+    return _cache["fetched_at"] > last_reset
+
+# ── Image ─────────────────────────────────────────────────────────────────────
+def _get_image(location_name: str):
+    slug = (location_name.lower()
+            .replace(" ", "-")
+            .replace("'", "")
+            .replace("'", ""))
+    url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
+    try:
+        r = requests.head(url, timeout=5)
+        if r.status_code == 200:
+            return url
+    except Exception:
+        pass
+    return None
+
+# ── Short Name ────────────────────────────────────────────────────────────────
 def _short_name(full_name: str) -> str:
-    """يقصّر الاسم: 'Bolger Glade in southern Scarlet Meadows' → 'Bolger Glade'"""
-    if not full_name:
-        return full_name
-    # نقطع عند " in " أو " near " أو " at "
     for sep in [" in ", " near ", " at ", " - "]:
-        if sep in full_name.lower():
-            return full_name[:full_name.lower().index(sep)].strip().title()
+        idx = full_name.lower().find(sep)
+        if idx != -1:
+            return full_name[:idx].strip().title()
     return full_name.strip().title()
 
-
-def _image_url(location_name: str) -> str:
-    """يبني رابط الصورة من rdocollector CDN (صور ثابتة دائماً متاحة)"""
-    slug = location_name.lower().replace(" ", "-").replace("'", "").replace("'", "")
-    return f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
-
-
+# ── Fetch Nazar ───────────────────────────────────────────────────────────────
 def get_nazar():
-    urls = [
-        ("github_api", "https://api.github.com/repos/jeanropke/RDR2CollectorsMap/contents/data/nazar.json"),
-        ("github_pages", "https://jeanropke.github.io/RDR2CollectorsMap/data/nazar.json"),
+    sources = [
+        ("api",   "https://api.github.com/repos/jeanropke/RDR2CollectorsMap/contents/data/nazar.json"),
+        ("pages", "https://jeanropke.github.io/RDR2CollectorsMap/data/nazar.json"),
     ]
-
-    for source, url in urls:
+    for name, url in sources:
         try:
             headers = {**HEADERS}
-            if source == "github_api":
+            if name == "api":
                 headers["Accept"] = "application/vnd.github.v3+json"
 
             resp = requests.get(url, headers=headers, timeout=15)
-            logger.info(f"[{source}] {resp.status_code}")
-
             if resp.status_code != 200:
                 continue
 
-            # GitHub API يرجع base64
-            if source == "github_api":
-                raw = base64.b64decode(resp.json()["content"]).decode("utf-8")
-            else:
-                raw = resp.text
-
-            logger.info(f"[{source}] raw: {raw[:300]}")
+            raw = (base64.b64decode(resp.json()["content"]).decode()
+                   if name == "api" else resp.text)
             data = json.loads(raw)
 
-            if not isinstance(data, list) or len(data) == 0:
-                logger.warning(f"[{source}] unexpected format")
-                continue
+            first = data[0] if isinstance(data, list) else data
+            loc_id = first.get("id", "").strip().lower()
 
-            # العنصر الأول = الموقع اليوم
-            first = data[0]
-            logger.info(f"[{source}] first item: {first}")
+            logger.info(f"✅ loc_id: '{loc_id}' | full: {first}")
 
-            loc_id = first.get("id", "")
-
-            # نجرب ID_MAP أولاً (اسم قصير)
             if loc_id in ID_MAP:
-                name, region = ID_MAP[loc_id]
-                img = _image_url(name)
-                logger.info(f"✅ ID match: {loc_id} → {name}")
-                return img, name, region
+                loc, region = ID_MAP[loc_id]
+                return _get_image(loc), loc, region
 
-            # نجرب الحقل "name" من nazar.json
-            full_name = (
-                first.get("name") or
-                first.get("location") or
-                first.get("title") or
-                ""
-            )
-            if full_name:
-                short = _short_name(full_name)
-                img = _image_url(short)
-                logger.info(f"✅ Name field: {full_name} → {short}")
-                return img, short, ""
+            full = (first.get("name") or first.get("location") or
+                    first.get("title") or "")
+            if full:
+                short = _short_name(full)
+                return _get_image(short), short, first.get("region", "")
 
-            # نجرب الحقل "region"
-            region = first.get("region", "")
             if loc_id:
-                logger.warning(f"Unknown id: {loc_id} | full item: {first}")
-                img = _image_url(loc_id)
-                return img, loc_id.upper(), region
+                return _get_image(loc_id), loc_id.upper(), first.get("region", "")
 
         except Exception as e:
-            logger.error(f"[{source}] error: {e}")
+            logger.error(f"[{name}] {e}")
 
     return None, None, None
 
 
+def get_nazar_cached():
+    if _cache_valid():
+        logger.info("📦 من الكاش")
+        return _cache["img"], _cache["location"], _cache["region"]
+    img, location, region = get_nazar()
+    if location:
+        _cache.update({
+            "img": img, "location": location,
+            "region": region,
+            "fetched_at": datetime.now(timezone.utc)
+        })
+    return img, location, region
+
+# ── Countdown ─────────────────────────────────────────────────────────────────
 def get_countdown():
     now = datetime.now(timezone.utc)
     nxt = now.replace(hour=6, minute=0, second=0, microsecond=0)
@@ -136,95 +145,123 @@ def get_countdown():
     total = int((nxt - now).total_seconds())
     return total // 3600, (total % 3600) // 60
 
+# ── Watchdog ──────────────────────────────────────────────────────────────────
+def watchdog():
+    while True:
+        time.sleep(300)  # كل 5 دقائق
+        try:
+            r = requests.get(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getMe",
+                timeout=10
+            )
+            if r.status_code == 200:
+                logger.info("💚 Watchdog OK")
+            else:
+                raise Exception(f"status {r.status_code}")
+        except Exception as e:
+            logger.error(f"🔴 Watchdog فشل: {e} — إعادة تشغيل...")
+            sys.exit(1)  # Railway يعيد التشغيل تلقائي
 
+# ── Handlers ──────────────────────────────────────────────────────────────────
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     if isinstance(context.error, Conflict):
-        logger.warning("Conflict: waiting...")
-        time.sleep(3)
+        logger.warning("⚠️ Conflict — نسختين شغالتين!")
     elif isinstance(context.error, NetworkError):
-        logger.warning(f"Network: {context.error}")
+        logger.warning(f"🌐 Network: {context.error}")
     else:
-        logger.error(f"Error: {context.error}")
+        logger.error(f"❌ Error: {context.error}")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "˚˖𓍢ִ໋❀ يا هلا والله في بوت نزار\n\n"
-        "📍 /nazar أو نزار لارسال موقع نزار.\n\n"
-        "🌸 /map : لرابط خريطة الكولكتر التفاعلية.\n\n"
+        "📍 /nazar أو اكتب نزار — لموقع مدام نزار\n\n"
+        "🌸 /map — لخريطة الكولكتر التفاعلية\n\n"
         "صيد موفق يا كولكترز! 🏇🎖️"
     )
 
 
 async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if is_on_cooldown(update.effective_user.id):
+        return
+
     msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
-    img_url, location, region = get_nazar()
+    img_url, location, region = get_nazar_cached()
 
-    if location:
-        hours, minutes = get_countdown()
-        caption = f"📍 *{location}*"
-        if region:
-            caption += f"\n_{region}_"
-        caption += f"\n\n⏳ يتغير بعد *{hours} ساعة و{minutes} دقيقة*"
-
-        await msg.delete()
-        if img_url:
-            try:
-                await update.message.reply_photo(
-                    photo=img_url, caption=caption, parse_mode="Markdown"
-                )
-                return
-            except Exception as e:
-                logger.error(f"Photo failed ({img_url}): {e}")
-        await update.message.reply_text(caption, parse_mode="Markdown")
-    else:
+    if not location:
         await msg.edit_text("❌ ما قدرت أجيب الموقع، حاول مرة ثانية.")
+        return
+
+    hours, minutes = get_countdown()
+    caption = f"📍 *{location}*"
+    if region:
+        caption += f"\n_{region}_"
+    caption += f"\n\n⏳ يتغير بعد *{hours} ساعة و{minutes} دقيقة*"
+
+    await msg.delete()
+
+    if img_url:
+        try:
+            await update.message.reply_photo(
+                photo=img_url, caption=caption, parse_mode="Markdown"
+            )
+            return
+        except Exception as e:
+            logger.error(f"🖼️ صورة فشلت: {e}")
+
+    await update.message.reply_text(caption, parse_mode="Markdown")
 
 
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"🌸 خريطة الكولكتر التفاعلية:\n\n{COLLECTORS_MAP}")
-
-
-async def text_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_nazar(update, context)
-
-
-async def text_collector(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await map_command(update, context)
+    await update.message.reply_text(
+        f"🌸 خريطة الكولكتر التفاعلية:\n\n{COLLECTORS_MAP}"
+    )
 
 
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
-    img_url, location, region = get_nazar()
-    if location:
-        caption = f"📍 *{location}*"
-        if region:
-            caption += f"\n_{region}_"
-        if img_url:
-            try:
-                await context.bot.send_photo(
-                    chat_id=CHAT_ID, photo=img_url,
-                    caption=caption, parse_mode="Markdown"
-                )
-                return
-            except Exception:
-                pass
-        await context.bot.send_message(
-            chat_id=CHAT_ID, text=caption, parse_mode="Markdown"
-        )
+    _cache["fetched_at"] = None  # امسح الكاش عشان يجيب موقع جديد
+    img_url, location, region = get_nazar_cached()
 
+    if not location:
+        return
 
+    caption = f"📍 *{location}*"
+    if region:
+        caption += f"\n_{region}_"
+
+    if img_url:
+        try:
+            await context.bot.send_photo(
+                chat_id=CHAT_ID, photo=img_url,
+                caption=caption, parse_mode="Markdown"
+            )
+            return
+        except Exception:
+            pass
+
+    await context.bot.send_message(
+        chat_id=CHAT_ID, text=caption, parse_mode="Markdown"
+    )
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    logger.info("Waiting 5s for old instance to stop...")
-    time.sleep(5)
+    threading.Thread(target=watchdog, daemon=True).start()
+    logger.info("👁️ Watchdog شغال")
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("nazar", send_nazar))
     app.add_handler(CommandHandler("map", map_command))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"نزار"), text_nazar))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"كول[ي]?كتر"), text_collector))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r"نزار"), send_nazar
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r"كول[ي]?كتر"), map_command
+    ))
     app.add_error_handler(error_handler)
-    app.job_queue.run_daily(daily_auto_send, time=dtime(6, 1, 0, tzinfo=pytz.UTC))
+    app.job_queue.run_daily(
+        daily_auto_send, time=dtime(6, 1, 0, tzinfo=pytz.UTC)
+    )
 
     logger.info("🤖 Bot started!")
     app.run_polling(drop_pending_updates=True)
