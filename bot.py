@@ -19,50 +19,50 @@ HEADERS = {
 }
 
 POINT_MAP = {
-    "1":  ("Grizzlies East",    "Ambarino"),
-    "2":  ("Grizzlies East",    "Ambarino"),
-    "3":  ("Black Balsam Rise", "Ambarino"),
-    "4":  ("Big Valley",        "West Elizabeth"),
-    "5":  ("Flatneck Station",  "New Hanover"),
-    "6":  ("The Heartlands",    "New Hanover"),
-    "7":  ("Bluewater Marsh",   "Lemoyne"),
-    "8":  ("Great Plains",      "West Elizabeth"),
-    "9":  ("Scarlett Meadows",  "Lemoyne"),
-    "10": ("Tumbleweed",        "New Austin"),
-    "11": ("Hennigan's Stead",  "New Austin"),
-    "12": ("Twin Rocks",        "New Austin"),
+    "1":  ("Grizzlies East",   "Ambarino"),
+    "2":  ("Grizzlies East",   "Ambarino"),
+    "3":  ("Black Balsam Rise","Ambarino"),
+    "4":  ("Big Valley",       "West Elizabeth"),
+    "5":  ("Flatneck Station", "New Hanover"),
+    "6":  ("The Heartlands",   "New Hanover"),
+    "7":  ("Bluewater Marsh",  "Lemoyne"),
+    "8":  ("Great Plains",     "West Elizabeth"),
+    "9":  ("Scarlett Meadows", "Lemoyne"),
+    "10": ("Tumbleweed",       "New Austin"),
+    "11": ("Hennigan's Stead", "New Austin"),
+    "12": ("Twin Rocks",       "New Austin"),
 }
 
 ID_MAP = {
-    "der": ("Bluewater Marsh",   "Lemoyne"),
-    "grz": ("Grizzlies East",    "Ambarino"),
-    "bbr": ("Black Balsam Rise", "Ambarino"),
-    "bgv": ("Big Valley",        "West Elizabeth"),
-    "blg": ("Scarlett Meadows",  "Lemoyne"),
-    "bwm": ("Bluewater Marsh",   "Lemoyne"),
-    "bch": ("Beecher's Hope",    "West Elizabeth"),
-    "twn": ("Twin Rocks",        "New Austin"),
-    "tmw": ("Tumbleweed",        "New Austin"),
-    "flt": ("Flatneck Station",  "New Hanover"),
-    "lmp": ("The Heartlands",    "New Hanover"),
-    "wnr": ("The Heartlands",    "New Hanover"),
-    "ann": ("Grizzlies East",    "Ambarino"),
-    "grw": ("Grizzlies East",    "Ambarino"),
+    "der": ("Bluewater Marsh",  "Lemoyne"),
+    "grz": ("Grizzlies East",   "Ambarino"),
+    "bbr": ("Black Balsam Rise","Ambarino"),
+    "bgv": ("Big Valley",       "West Elizabeth"),
+    "blg": ("Scarlett Meadows", "Lemoyne"),
+    "bwm": ("Bluewater Marsh",  "Lemoyne"),
+    "bch": ("Beecher's Hope",   "West Elizabeth"),
+    "twn": ("Twin Rocks",       "New Austin"),
+    "tmw": ("Tumbleweed",       "New Austin"),
+    "flt": ("Flatneck Station", "New Hanover"),
+    "lmp": ("The Heartlands",   "New Hanover"),
+    "wnr": ("The Heartlands",   "New Hanover"),
+    "ann": ("Grizzlies East",   "Ambarino"),
+    "grw": ("Grizzlies East",   "Ambarino"),
 }
 
 FAST_TRAVEL_MAP = {
-    "Grizzlies East":    "Annesburg",
-    "Black Balsam Rise": "Annesburg",
-    "Big Valley":        "Strawberry",
-    "Flatneck Station":  "Flatneck Station",
-    "The Heartlands":    "Emerald Ranch",
-    "Bluewater Marsh":   "Saint Denis",
-    "Great Plains":      "Blackwater",
-    "Scarlett Meadows":  "Rhodes",
-    "Tumbleweed":        "Tumbleweed",
-    "Hennigan's Stead":  "Armadillo",
-    "Twin Rocks":        "Armadillo",
-    "Beecher's Hope":    "Blackwater",
+    "Grizzlies East":   "Annesburg",
+    "Black Balsam Rise":"Annesburg",
+    "Big Valley":       "Strawberry",
+    "Flatneck Station": "Flatneck Station",
+    "The Heartlands":   "Emerald Ranch",
+    "Bluewater Marsh":  "Saint Denis",
+    "Great Plains":     "Blackwater",
+    "Scarlett Meadows": "Rhodes",
+    "Tumbleweed":       "Tumbleweed",
+    "Hennigan's Stead": "Armadillo",
+    "Twin Rocks":       "Armadillo",
+    "Beecher's Hope":   "Blackwater",
 }
 
 # ── Cooldown ──────────────────────────────────────────────
@@ -135,9 +135,12 @@ def _get_nazar_jeanropke():
             data = json.loads(raw)
             first = data[0] if isinstance(data, list) else data
             loc_id = first.get("id", "").strip().lower()
+            logger.info(f"jeanropke loc_id: {loc_id}")
             if loc_id in ID_MAP:
                 loc, region = ID_MAP[loc_id]
                 return None, loc, region
+            else:
+                logger.warning(f"id '{loc_id}' مو في ID_MAP")
         except Exception as e:
             logger.error(f"jeanropke [{name}] error: {e}")
     return None, None, None
@@ -150,7 +153,8 @@ def get_nazar_cached():
     img, location, region = get_nazar()
     if location:
         _cache.update({
-            "img": img, "location": location,
+            "img": img,
+            "location": location,
             "region": region,
             "fetched_at": datetime.now(timezone.utc)
         })
