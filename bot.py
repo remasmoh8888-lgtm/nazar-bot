@@ -43,50 +43,63 @@ LOCATIONS = {
 }
 
 
+def build_result(spot):
+    nearest = "غير معروف"
+    img_url = "https://static.wikia.nocookie.net/reddead/images/5/5e/Madam_Nazar_RDO.png"
+    for key, (city, slug) in LOCATIONS.items():
+        if key in spot.lower():
+            nearest = city
+            img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
+            break
+    return img_url, spot, nearest
+
+
+def get_nazar_coyotejack():
+    ts = int(datetime.now(timezone.utc).timestamp())
+    headers = {"User-Agent": "Mozilla/5.0", "Cache-Control": "no-cache"}
+    resp = requests.get(
+        f"https://www.coyotejack.net/where-is-madam-nazar/?t={ts}",
+        headers=headers, timeout=15
+    )
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+    for h2 in soup.find_all("h2"):
+        if "Where is Madam Nazar Today?" in h2.get_text():
+            p = h2.find_next_sibling("p")
+            full_text = p.get_text(strip=True) if p else ""
+            logger.info(f"coyotejack raw: {full_text}")
+            m = re.search(r"She is (?:near|in) (.+?)\.", full_text)
+            if m:
+                return m.group(1).strip()
+    return None
+
+
+def get_nazar_wherenazar():
+    headers = {"User-Agent": "Mozilla/5.0"}
+    resp = requests.get("https://wherenazar.com", headers=headers, timeout=15)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+    for tag in soup.find_all(["h1", "h2", "h3", "p"]):
+        text = tag.get_text(strip=True)
+        m = re.search(r"(?:near|in) ([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)", text)
+        if m:
+            spot = m.group(1).strip()
+            for key in LOCATIONS:
+                if key in spot.lower():
+                    logger.info(f"wherenazar spot: {spot}")
+                    return spot
+    return None
+
+
 def get_nazar():
-    try:
-        ts = int(datetime.now(timezone.utc).timestamp())
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-        }
-        resp = requests.get(
-            f"https://www.coyotejack.net/where-is-madam-nazar/?t={ts}",
-            headers=headers, timeout=15
-        )
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        for h2 in soup.find_all("h2"):
-            if "Where is Madam Nazar Today?" in h2.get_text():
-                p = h2.find_next_sibling("p")
-                full_text = p.get_text(strip=True) if p else ""
-                logger.info(f"Raw: {full_text}")
-
-                spot_match = re.search(r"She is (?:near|in) (.+?)\.", full_text)
-                spot = spot_match.group(1).strip() if spot_match else ""
-
-                if not spot:
-                    return None, None, None
-
-                nearest = "غير معروف"
-                img_url = "https://static.wikia.nocookie.net/reddead/images/5/5e/Madam_Nazar_RDO.png"
-
-                for key, (city, slug) in LOCATIONS.items():
-                    if key in spot.lower():
-                        nearest = city
-                        img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
-                        break
-
-                logger.info(f"Spot: {spot} | Nearest: {nearest}")
-                return img_url, spot, nearest
-
-        return None, None, None
-
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        return None, None, None
+    for source in [get_nazar_coyotejack, get_nazar_wherenazar]:
+        try:
+            spot = source()
+            if spot:
+                return build_result(spot)
+        except Exception as e:
+            logger.warning(f"{source.__name__} failed: {e}")
+    return None, None, None
 
 
 def get_countdown():
@@ -122,7 +135,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
     img_url, spot, nearest = get_nazar()
-
     if spot:
         hours, minutes = get_countdown()
         caption = build_caption(spot, nearest, hours, minutes)
