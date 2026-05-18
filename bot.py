@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = "8372609971:AAE80LAq2iTKqTVqPRglepIzAv21DNXNPB0"
 CHAT_ID = "8202101663"
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
-FALLBACK_IMG = "https://static.wikia.nocookie.net/reddead/images/5/5e/Madam_Nazar_RDO.png"
 
 LOCATIONS = {
     "grizzlies east":   ("Annesburg",       "grizzlies-east"),
@@ -41,13 +40,6 @@ LOCATIONS = {
     "brandywine":       ("Annesburg",       "roanoke-ridge"),
     "cumberland":       ("Valentine",       "new-hanover"),
     "rio del lobo":     ("Tumbleweed",      "rio-bravo"),
-    "flat iron":        ("Thieves Landing", "flat-iron-lake"),
-    "owanjila":         ("Strawberry",      "big-valley"),
-    "stillwater":       ("Valentine",       "new-hanover"),
-    "annesburg":        ("Annesburg",       "roanoke-ridge"),
-    "rhodes":           ("Rhodes",          "lemoyne"),
-    "saint denis":      ("Saint Denis",     "bayou-nwa"),
-    "valentine":        ("Valentine",       "new-hanover"),
 }
 
 
@@ -72,21 +64,17 @@ def get_nazar():
                 full_text = p.get_text(strip=True) if p else ""
                 logger.info(f"Raw: {full_text}")
 
-                # سحب مكان نزار بالضبط
                 spot_match = re.search(r"She is (?:near|in) (.+?)\.", full_text)
                 spot = spot_match.group(1).strip() if spot_match else ""
 
                 if not spot:
-                    logger.warning("No location found")
                     return None, None, None
 
-                # البحث عن الصورة والفاست ترفل
-                spot_lower = spot.lower()
                 nearest = "غير معروف"
-                img_url = FALLBACK_IMG
+                img_url = "https://static.wikia.nocookie.net/reddead/images/5/5e/Madam_Nazar_RDO.png"
 
                 for key, (city, slug) in LOCATIONS.items():
-                    if key in spot_lower:
+                    if key in spot.lower():
                         nearest = city
                         img_url = f"https://rdocollector.nyc3.digitaloceanspaces.com/img/madam-nazar-{slug}.jpg"
                         break
@@ -114,13 +102,11 @@ def get_countdown():
 
 def build_caption(spot, nearest, hours, minutes):
     return (
-        f"📍 *{spot}*\n"
+        f"📍 {spot}\n"
         f"━━━━━━━━━━━━\n"
-        f"🏙️ أقرب فاست ترفل:\n"
-        f"*{nearest}*\n"
+        f"🏙️ أقرب فاست ترفل: {nearest}\n"
         f"━━━━━━━━━━━━\n"
-        f"⏳ يتغير بعد:\n"
-        f"{hours}س {minutes}د"
+        f"⏳ يتغير بعد: {hours}س {minutes}د"
     )
 
 
@@ -142,12 +128,10 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption = build_caption(spot, nearest, hours, minutes)
         await msg.delete()
         try:
-            await update.message.reply_photo(
-                photo=img_url, caption=caption, parse_mode="Markdown"
-            )
+            await update.message.reply_photo(photo=img_url, caption=caption)
         except Exception as e:
             logger.error(f"Photo failed: {e}")
-            await update.message.reply_text(caption, parse_mode="Markdown")
+            await update.message.reply_text(caption)
     else:
         await msg.edit_text("❌ ما قدرت أجيب الموقع، حاول مرة ثانية.")
 
@@ -167,14 +151,9 @@ async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
     hours, minutes = get_countdown()
     caption = build_caption(spot, nearest, hours, minutes)
     try:
-        await context.bot.send_photo(
-            chat_id=CHAT_ID, photo=img_url,
-            caption=caption, parse_mode="Markdown"
-        )
+        await context.bot.send_photo(chat_id=CHAT_ID, photo=img_url, caption=caption)
     except Exception:
-        await context.bot.send_message(
-            chat_id=CHAT_ID, text=caption, parse_mode="Markdown"
-        )
+        await context.bot.send_message(chat_id=CHAT_ID, text=caption)
 
 
 def main():
