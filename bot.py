@@ -72,7 +72,7 @@ COOLDOWN: dict = {}
 def is_on_cooldown(user_id: int) -> bool:
     now = time.time()
     with _cooldown_lock:
-        if user_id in COOLDOWN and now - COOLDOWN[user_id] < 10:
+        if user_id in COOLDOWN and now - COOLDOWN[user_id] < 3:
             return True
         COOLDOWN[user_id] = now
     return False
