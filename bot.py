@@ -10,7 +10,7 @@ logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=lo
 logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = "8372609971:AAGJXv7U60MDLScX87DF8LsTZx90_Ff3CPo"
-CHAT_ID = "8372609971"
+CHAT_ID = "8202101663"
 COLLECTORS_MAP = "https://jeanropke.github.io/RDR2CollectorsMap/"
 
 HEADERS = {
@@ -19,62 +19,63 @@ HEADERS = {
 }
 
 POINT_MAP = {
-    "1":  ("Grizzlies East",   "Ambarino"),
-    "2":  ("Grizzlies East",   "Ambarino"),
-    "3":  ("Black Balsam Rise","Ambarino"),
-    "4":  ("Big Valley",       "West Elizabeth"),
-    "5":  ("Flatneck Station", "New Hanover"),
-    "6":  ("The Heartlands",   "New Hanover"),
-    "7":  ("Bluewater Marsh",  "Lemoyne"),
-    "8":  ("Great Plains",     "West Elizabeth"),
-    "9":  ("Scarlett Meadows", "Lemoyne"),
-    "10": ("Tumbleweed",       "New Austin"),
-    "11": ("Hennigan's Stead", "New Austin"),
-    "12": ("Twin Rocks",       "New Austin"),
+    "1":  ("Grizzlies East",    "Ambarino"),
+    "2":  ("Grizzlies East",    "Ambarino"),
+    "3":  ("Black Balsam Rise", "Ambarino"),
+    "4":  ("Big Valley",        "West Elizabeth"),
+    "5":  ("Flatneck Station",  "New Hanover"),
+    "6":  ("The Heartlands",    "New Hanover"),
+    "7":  ("Bluewater Marsh",   "Lemoyne"),
+    "8":  ("Great Plains",      "West Elizabeth"),
+    "9":  ("Scarlett Meadows",  "Lemoyne"),
+    "10": ("Tumbleweed",        "New Austin"),
+    "11": ("Hennigan's Stead",  "New Austin"),
+    "12": ("Twin Rocks",        "New Austin"),
 }
 
 ID_MAP = {
-    "der": ("Bluewater Marsh",  "Lemoyne"),
-    "grz": ("Grizzlies East",   "Ambarino"),
-    "bbr": ("Black Balsam Rise","Ambarino"),
-    "bgv": ("Big Valley",       "West Elizabeth"),
-    "blg": ("Scarlett Meadows", "Lemoyne"),
-    "bwm": ("Bluewater Marsh",  "Lemoyne"),
-    "bch": ("Beecher's Hope",   "West Elizabeth"),
-    "twn": ("Twin Rocks",       "New Austin"),
-    "tmw": ("Tumbleweed",       "New Austin"),
-    "flt": ("Flatneck Station", "New Hanover"),
-    "lmp": ("The Heartlands",   "New Hanover"),
-    "wnr": ("The Heartlands",   "New Hanover"),
-    "ann": ("Grizzlies East",   "Ambarino"),
-    "grw": ("Grizzlies East",   "Ambarino"),
+    "der": ("Bluewater Marsh",   "Lemoyne"),
+    "grz": ("Grizzlies East",    "Ambarino"),
+    "bbr": ("Black Balsam Rise", "Ambarino"),
+    "bgv": ("Big Valley",        "West Elizabeth"),
+    "blg": ("Scarlett Meadows",  "Lemoyne"),
+    "bwm": ("Bluewater Marsh",   "Lemoyne"),
+    "bch": ("Beecher's Hope",    "West Elizabeth"),
+    "twn": ("Twin Rocks",        "New Austin"),
+    "tmw": ("Tumbleweed",        "New Austin"),
+    "flt": ("Flatneck Station",  "New Hanover"),
+    "lmp": ("The Heartlands",    "New Hanover"),
+    "wnr": ("The Heartlands",    "New Hanover"),
+    "ann": ("Grizzlies East",    "Ambarino"),
+    "grw": ("Grizzlies East",    "Ambarino"),
 }
 
 FAST_TRAVEL_MAP = {
-    "Grizzlies East":   "Annesburg",
-    "Black Balsam Rise":"Annesburg",
-    "Big Valley":       "Strawberry",
-    "Flatneck Station": "Flatneck Station",
-    "The Heartlands":   "Emerald Ranch",
-    "Bluewater Marsh":  "Saint Denis",
-    "Great Plains":     "Blackwater",
-    "Scarlett Meadows": "Rhodes",
-    "Tumbleweed":       "Tumbleweed",
-    "Hennigan's Stead": "Armadillo",
-    "Twin Rocks":       "Armadillo",
-    "Beecher's Hope":   "Blackwater",
+    "Grizzlies East":    "Annesburg",
+    "Black Balsam Rise": "Annesburg",
+    "Big Valley":        "Strawberry",
+    "Flatneck Station":  "Flatneck Station",
+    "The Heartlands":    "Emerald Ranch",
+    "Bluewater Marsh":   "Saint Denis",
+    "Great Plains":      "Blackwater",
+    "Scarlett Meadows":  "Rhodes",
+    "Tumbleweed":        "Tumbleweed",
+    "Hennigan's Stead":  "Armadillo",
+    "Twin Rocks":        "Armadillo",
+    "Beecher's Hope":    "Blackwater",
 }
 
-# ── Cooldown ──────────────────────────────────────────────
-_cooldown_lock = threading.Lock()
-COOLDOWN: dict = {}
+# ── منع التكرار بـ update_id ──────────────────────────────
+_seen_updates: set = set()
+_seen_lock = threading.Lock()
 
-def is_on_cooldown(user_id: int) -> bool:
-    now = time.time()
-    with _cooldown_lock:
-        if user_id in COOLDOWN and now - COOLDOWN[user_id] < 3:
+def is_duplicate(update_id: int) -> bool:
+    with _seen_lock:
+        if update_id in _seen_updates:
             return True
-        COOLDOWN[user_id] = now
+        _seen_updates.add(update_id)
+        if len(_seen_updates) > 1000:
+            _seen_updates.clear()
     return False
 
 # ── Cache ─────────────────────────────────────────────────
@@ -108,8 +109,9 @@ def get_nazar():
             point = point_match.group(1) if point_match else None
             if point and point in POINT_MAP:
                 name, region = POINT_MAP[point]
-                logger.info(f"✅ point {point} → {name}")
+                logger.info(f"✅ madamnazar point {point} → {name}")
                 return img_url, name, region
+            logger.warning("madamnazar.io: ما لقى point")
         except Exception as e:
             logger.error(f"madamnazar.io error [{date_str}]: {e}")
 
@@ -135,12 +137,13 @@ def _get_nazar_jeanropke():
             data = json.loads(raw)
             first = data[0] if isinstance(data, list) else data
             loc_id = first.get("id", "").strip().lower()
-            logger.info(f"jeanropke loc_id: {loc_id}")
+            logger.info(f"jeanropke loc_id: '{loc_id}'")
             if loc_id in ID_MAP:
                 loc, region = ID_MAP[loc_id]
+                logger.info(f"✅ jeanropke {loc_id} → {loc}")
                 return None, loc, region
             else:
-                logger.warning(f"id '{loc_id}' مو في ID_MAP")
+                logger.warning(f"⛔ id '{loc_id}' مو في ID_MAP")
         except Exception as e:
             logger.error(f"jeanropke [{name}] error: {e}")
     return None, None, None
@@ -206,7 +209,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if is_on_cooldown(update.effective_user.id):
+    if is_duplicate(update.update_id):
         return
 
     msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
