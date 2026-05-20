@@ -65,7 +65,7 @@ FAST_TRAVEL_MAP = {
     "Beecher's Hope":    "Blackwater",
 }
 
-# ── منع التكرار بـ update_id ──────────────────────────────
+# ── منع التكرار ───────────────────────────────────────────
 _seen_updates: set = set()
 _seen_lock = threading.Lock()
 
@@ -78,20 +78,9 @@ def is_duplicate(update_id: int) -> bool:
             _seen_updates.clear()
     return False
 
-# ── Cache ─────────────────────────────────────────────────
-_cache: dict = {"img": None, "location": None, "region": None, "fetched_at": None}
-
-def _cache_valid() -> bool:
-    if not _cache["fetched_at"]:
-        return False
-    now = datetime.now(timezone.utc)
-    last_reset = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    if now.hour < 6:
-        last_reset -= timedelta(days=1)
-    return _cache["fetched_at"] > last_reset
-
-# ── Fetch من madamnazar.io ────────────────────────────────
+# ── Fetch طازج كل مرة ─────────────────────────────────────
 def get_nazar():
+    # جرب اليوم وأمس
     for days_back in [0, 1]:
         target = datetime.now(timezone.utc) - timedelta(days=days_back)
         date_str = target.strftime("%Y-%m-%d")
@@ -109,17 +98,14 @@ def get_nazar():
             point = point_match.group(1) if point_match else None
             if point and point in POINT_MAP:
                 name, region = POINT_MAP[point]
-                logger.info(f"✅ madamnazar point {point} → {name}")
+                logger.info(f"✅ point {point} → {name}")
                 return img_url, name, region
             logger.warning("madamnazar.io: ما لقى point")
         except Exception as e:
             logger.error(f"madamnazar.io error [{date_str}]: {e}")
 
+    # Fallback على jeanropke
     logger.warning("Fallback → jeanropke")
-    return _get_nazar_jeanropke()
-
-
-def _get_nazar_jeanropke():
     sources = [
         ("api",   "https://api.github.com/repos/jeanropke/RDR2CollectorsMap/contents/data/nazar.json"),
         ("pages", "https://jeanropke.github.io/RDR2CollectorsMap/data/nazar.json"),
@@ -146,22 +132,8 @@ def _get_nazar_jeanropke():
                 logger.warning(f"⛔ id '{loc_id}' مو في ID_MAP")
         except Exception as e:
             logger.error(f"jeanropke [{name}] error: {e}")
+
     return None, None, None
-
-
-def get_nazar_cached():
-    if _cache_valid():
-        logger.info("📦 من الكاش")
-        return _cache["img"], _cache["location"], _cache["region"]
-    img, location, region = get_nazar()
-    if location:
-        _cache.update({
-            "img": img,
-            "location": location,
-            "region": region,
-            "fetched_at": datetime.now(timezone.utc)
-        })
-    return img, location, region
 
 # ── Countdown ─────────────────────────────────────────────
 def get_countdown():
@@ -213,7 +185,7 @@ async def send_nazar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     msg = await update.message.reply_text("🔍 جاري البحث عن موقع مدام نزار...")
-    img_url, location, region = get_nazar_cached()
+    img_url, location, region = get_nazar()
 
     if not location:
         await msg.edit_text("❌ ما قدرت أجيب الموقع، حاول مرة ثانية.")
@@ -249,8 +221,7 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def daily_auto_send(context: ContextTypes.DEFAULT_TYPE):
-    _cache["fetched_at"] = None
-    img_url, location, region = get_nazar_cached()
+    img_url, location, region = get_nazar()
 
     if not location:
         return
